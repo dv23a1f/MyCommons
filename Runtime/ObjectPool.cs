@@ -4,7 +4,7 @@ using System.Threading;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace Utility.Pooling
+namespace DX.Core.Utility.Pooling
 {
     /// <summary>
     /// 对象池对外暴露的核心 API 接口（不包含任何构建阶段的配置方法）

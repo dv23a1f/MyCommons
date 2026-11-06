@@ -5,443 +5,446 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
 
-public interface IInputService : IInputBinder
+namespace DX.Core.Input
 {
-    /// <summary>
-    /// 直接读取当前帧的输入值（如 Vector2 移动向量、float 扳机值）
-    /// </summary>
-    T ReadValue<T>(string actionName) where T : struct;
-
-    /// <summary>
-    /// 判断当前按键是否正处于按下/激活状态（适合在 Update 中判断冲刺、开镜等）
-    /// </summary>
-    bool IsPressed(string actionName);
-
-    /// <summary>
-    /// 获取原生 InputAction
-    /// </summary>
-    InputAction GetAction(string actionName);
-}
-
-public interface IInputBinder
-{
-    /// <summary>
-    ///  监听该 Action 的所有阶段（started / performed / canceled）。
-    /// </summary>
-    void Bind(string actionName, Action<InputAction.CallbackContext> callback, CancellationToken ct = default);
-
-    void BindValue<T>(string actionName, Action<T> onValueChanged, CancellationToken ct = default) where T : struct;
-    /// <summary>
-    /// 单次点击（如：跳跃、开火、交互）。仅监听 performed。
-    /// </summary>
-    void BindButton(string actionName, Action onPerformed, CancellationToken ct = default);
-
-    /// <summary>
-    /// 单次触发动作，同时携带当前绑定的数值（如带坐标的点击、带力度的按键）
-    /// 仅监听 performed 阶段
-    /// </summary>
-    void BindButton<T>(string actionName, Action<T> onPerformed, CancellationToken ct = default) where T : struct;
-    /// <summary>
-    /// 持续按住/松开（如：瞄准、格挡、蓄力、冲刺跑）。监听 started (按下) 和 canceled (松开)。
-    /// </summary>
-    void BindHold(string actionName, Action onStarted = null, Action onCanceled = null, CancellationToken ct = default);
-}
-
-public class InputBinder : MonoBehaviour, IInputService
-{
-    [SerializeField] private InputActionAsset _assetTemplate;
-    [SerializeField] private bool _setAsGlobalDefault = true;
-
-    private InputActionAsset _runtimeActions;
-    private readonly Dictionary<string, InputAction> _actionCache = new();
-    bool _initialized;
-
-    public static IInputService Create(InputActionAsset asset, bool setAsGlobal = true)
+    public interface IInputService : IInputBinder
     {
-        if (asset == null) throw new NullReferenceException("InputActionAsset 为 null");
-        if (GameInput.DefaultInput != null)
-        {
-            Debug.LogWarning("已存在 InputBinder 单例");
-            return GameInput.DefaultInput;
-        }
+        /// <summary>
+        /// 直接读取当前帧的输入值（如 Vector2 移动向量、float 扳机值）
+        /// </summary>
+        T ReadValue<T>(string actionName) where T : struct;
 
-        GameObject go = new("[InputBinder]");
-        // 先禁用防止自动执行 Initialize
-        go.SetActive(false);
-        var binder = go.AddComponent<InputBinder>();
-        binder._assetTemplate = asset;
+        /// <summary>
+        /// 判断当前按键是否正处于按下/激活状态（适合在 Update 中判断冲刺、开镜等）
+        /// </summary>
+        bool IsPressed(string actionName);
 
-        if (setAsGlobal)
-        {
-            binder._setAsGlobalDefault = setAsGlobal;
-            GameObject.DontDestroyOnLoad(go);
-        }
-
-        binder.Initialize();
-        go.SetActive(true);
-        return binder;
+        /// <summary>
+        /// 获取原生 InputAction
+        /// </summary>
+        InputAction GetAction(string actionName);
     }
 
-    private void Awake()
+    public interface IInputBinder
     {
-        Initialize();
+        /// <summary>
+        ///  监听该 Action 的所有阶段（started / performed / canceled）。
+        /// </summary>
+        void Bind(string actionName, Action<InputAction.CallbackContext> callback, CancellationToken ct = default);
+
+        void BindValue<T>(string actionName, Action<T> onValueChanged, CancellationToken ct = default) where T : struct;
+        /// <summary>
+        /// 单次点击（如：跳跃、开火、交互）。仅监听 performed。
+        /// </summary>
+        void BindButton(string actionName, Action onPerformed, CancellationToken ct = default);
+
+        /// <summary>
+        /// 单次触发动作，同时携带当前绑定的数值（如带坐标的点击、带力度的按键）
+        /// 仅监听 performed 阶段
+        /// </summary>
+        void BindButton<T>(string actionName, Action<T> onPerformed, CancellationToken ct = default) where T : struct;
+        /// <summary>
+        /// 持续按住/松开（如：瞄准、格挡、蓄力、冲刺跑）。监听 started (按下) 和 canceled (松开)。
+        /// </summary>
+        void BindHold(string actionName, Action onStarted = null, Action onCanceled = null, CancellationToken ct = default);
     }
 
-    public void Initialize()
+    public class InputBinder : MonoBehaviour, IInputService
     {
-        if (_initialized) return;
+        [SerializeField] private InputActionAsset _assetTemplate;
+        [SerializeField] private bool _setAsGlobalDefault = true;
 
-        if (_assetTemplate != null)
+        private InputActionAsset _runtimeActions;
+        private readonly Dictionary<string, InputAction> _actionCache = new();
+        bool _initialized;
+
+        public static IInputService Create(InputActionAsset asset, bool setAsGlobal = true)
         {
-
-            _runtimeActions = Instantiate(_assetTemplate);
-            _runtimeActions.Enable();
-            _initialized = true;
-
-            if (_setAsGlobalDefault)
+            if (asset == null) throw new NullReferenceException("InputActionAsset 为 null");
+            if (GameInput.DefaultInput != null)
             {
-                GameInput.DefaultInput = this;
+                Debug.LogWarning("已存在 InputBinder 单例");
+                return GameInput.DefaultInput;
+            }
+
+            GameObject go = new("[InputBinder]");
+            // 先禁用防止自动执行 Initialize
+            go.SetActive(false);
+            var binder = go.AddComponent<InputBinder>();
+            binder._assetTemplate = asset;
+
+            if (setAsGlobal)
+            {
+                binder._setAsGlobalDefault = setAsGlobal;
+                GameObject.DontDestroyOnLoad(go);
+            }
+
+            binder.Initialize();
+            go.SetActive(true);
+            return binder;
+        }
+
+        private void Awake()
+        {
+            Initialize();
+        }
+
+        public void Initialize()
+        {
+            if (_initialized) return;
+
+            if (_assetTemplate != null)
+            {
+
+                _runtimeActions = Instantiate(_assetTemplate);
+                _runtimeActions.Enable();
+                _initialized = true;
+
+                if (_setAsGlobalDefault)
+                {
+                    GameInput.DefaultInput = this;
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[{nameof(InputBinder)}] 未指定 InputActionAsset！", this);
             }
         }
-        else
+
+        private void OnEnable()
         {
-            Debug.LogWarning($"[{nameof(InputBinder)}] 未指定 InputActionAsset！", this);
+            _runtimeActions?.Enable();
         }
-    }
 
-    private void OnEnable()
-    {
-        _runtimeActions?.Enable();
-    }
-
-    private void OnDisable()
-    {
-        _runtimeActions?.Disable();
-    }
-
-    private void OnDestroy()
-    {
-        if (object.ReferenceEquals(GameInput.DefaultInput, this))
+        private void OnDisable()
         {
-            GameInput.DefaultInput = null;
+            _runtimeActions?.Disable();
         }
-        if (_runtimeActions != null)
+
+        private void OnDestroy()
         {
-            Destroy(_runtimeActions);
-            _actionCache.Clear();
-        }
-    }
-
-    /// <summary>
-    /// 最基础的绑定：监听该 Action 的所有阶段（started / performed / canceled）。
-    /// 适合需要完整 CallbackContext 进行复杂逻辑判断的场景。
-    /// </summary>
-    public void Bind(
-        string actionName,
-        Action<InputAction.CallbackContext> callback,
-        CancellationToken ct = default)
-    {
-        if (callback == null) return;
-
-        BindInternal(
-            actionName,
-            onStarted: callback,
-            onPerformed: callback,
-            onCanceled: callback,
-            ct: ct);
-    }
-
-    /// <summary>
-    /// 专用于持续输入（如移动 Vector2、滚轮 float）。
-    /// 推摇杆时返回实际输入，松开回正时自动调用并返回默认值 (如 Vector2.zero)。
-    /// </summary>
-    public void BindValue<T>(
-        string actionName,
-        Action<T> onValueChanged,
-        CancellationToken ct = default) where T : struct
-    {
-        if (onValueChanged == null) return;
-
-        // 持续输入全阶段都需要读取：松开 canceled 时 ReadValue 会自动返回 default(T)
-        Action<InputAction.CallbackContext> callback = ctx => onValueChanged(ctx.ReadValue<T>());
-
-        BindInternal(
-            actionName,
-            onPerformed: callback,
-            onCanceled: callback,
-            ct: ct);
-    }
-
-    /// <summary>
-    /// 专用于普通单次点击按键（如跳跃、交互、开火）。
-    /// 仅精确监听 performed 阶段，避免 started/canceled 无效触发。
-    /// </summary>
-    public void BindButton(
-        string actionName,
-        Action onPerformed,
-        CancellationToken ct = default)
-    {
-        if (onPerformed == null) return;
-
-        // 只监听 performed
-        BindInternal(
-            actionName,
-            onPerformed: _ => onPerformed(),
-            ct: ct);
-    }
-
-    public void BindButton<T>(
-        string actionName,
-        Action<T> onPerformed,
-        CancellationToken ct = default) where T : struct
-    {
-        if (onPerformed == null) return;
-
-        // 只监听 performed，并在此时读取 T 类型的数据
-        BindInternal(
-            actionName,
-            onPerformed: ctx => onPerformed(ctx.ReadValue<T>()),
-            ct: ct);
-    }
-
-    /// <summary>
-    /// 专用于按住类按键（瞄准、格挡、蓄力等），支持分别监听“按下”与“松开”。
-    /// </summary>
-    public void BindHold(
-        string actionName,
-        Action onDown = null,
-        Action onUp = null,
-        CancellationToken ct = default)
-    {
-        if (onDown == null && onUp == null) return;
-
-        Action<InputAction.CallbackContext> startedCallback = onDown != null ? _ => onDown() : null;
-        Action<InputAction.CallbackContext> canceledCallback = onUp != null ? _ => onUp() : null;
-
-        BindInternal(
-            actionName,
-            onStarted: startedCallback,
-            onCanceled: canceledCallback,
-            ct: ct);
-    }
-    /// <summary>
-    /// 核心私有绑定方法：按需订阅各阶段，并集中管理注销逻辑。
-    /// 哪一个阶段传了回调就监听哪一个，不传则不订阅。
-    /// </summary>
-    private void BindInternal(
-        string actionName,
-        Action<InputAction.CallbackContext> onStarted = null,
-        Action<InputAction.CallbackContext> onPerformed = null,
-        Action<InputAction.CallbackContext> onCanceled = null,
-        CancellationToken ct = default)
-    {
-        //未初始化时自动初始化 防止脚本执行时序导致的bug
-        Initialize();
-
-        if (ct.IsCancellationRequested) return;
-
-        InputAction action = FindAction(actionName);
-        if (action == null) return;
-
-        // 按需挂载
-        if (onStarted != null) action.started += onStarted;
-        if (onPerformed != null) action.performed += onPerformed;
-        if (onCanceled != null) action.canceled += onCanceled;
-
-        // 通过 CancellationToken 精准按需解绑
-        if (ct.CanBeCanceled)
-        {
-            ct.Register(() =>
+            if (object.ReferenceEquals(GameInput.DefaultInput, this))
             {
-                if (action == null) return;
-                if (onStarted != null) action.started -= onStarted;
-                if (onPerformed != null) action.performed -= onPerformed;
-                if (onCanceled != null) action.canceled -= onCanceled;
-            });
+                GameInput.DefaultInput = null;
+            }
+            if (_runtimeActions != null)
+            {
+                Destroy(_runtimeActions);
+                _actionCache.Clear();
+            }
         }
-    }
 
-    /// <summary>
-    /// 直接读取当前值。若未找到 Action 则返回 default。
-    /// </summary>
-    public T ReadValue<T>(string actionName) where T : struct
-    {
-        var action = FindAction(actionName);
-        return action != null ? action.ReadValue<T>() : default;
-    }
-
-    /// <summary>
-    /// 按键是否正被按住。
-    /// </summary>
-    public bool IsPressed(string actionName)
-    {
-        var action = FindAction(actionName);
-        return action != null && action.IsPressed();
-    }
-
-    /// <summary>
-    /// 获取底层原生 Action。调用方可以在 Start/Awake 中直接缓存该引用。
-    /// </summary>
-    public InputAction GetAction(string actionName)
-    {
-        return FindAction(actionName);
-    }
-
-    private InputAction FindAction(string actionName)
-    {
-        if (string.IsNullOrEmpty(actionName)) return null;
-
-        if (_actionCache.TryGetValue(actionName, out var action))
+        /// <summary>
+        /// 最基础的绑定：监听该 Action 的所有阶段（started / performed / canceled）。
+        /// 适合需要完整 CallbackContext 进行复杂逻辑判断的场景。
+        /// </summary>
+        public void Bind(
+            string actionName,
+            Action<InputAction.CallbackContext> callback,
+            CancellationToken ct = default)
         {
+            if (callback == null) return;
+
+            BindInternal(
+                actionName,
+                onStarted: callback,
+                onPerformed: callback,
+                onCanceled: callback,
+                ct: ct);
+        }
+
+        /// <summary>
+        /// 专用于持续输入（如移动 Vector2、滚轮 float）。
+        /// 推摇杆时返回实际输入，松开回正时自动调用并返回默认值 (如 Vector2.zero)。
+        /// </summary>
+        public void BindValue<T>(
+            string actionName,
+            Action<T> onValueChanged,
+            CancellationToken ct = default) where T : struct
+        {
+            if (onValueChanged == null) return;
+
+            // 持续输入全阶段都需要读取：松开 canceled 时 ReadValue 会自动返回 default(T)
+            Action<InputAction.CallbackContext> callback = ctx => onValueChanged(ctx.ReadValue<T>());
+
+            BindInternal(
+                actionName,
+                onPerformed: callback,
+                onCanceled: callback,
+                ct: ct);
+        }
+
+        /// <summary>
+        /// 专用于普通单次点击按键（如跳跃、交互、开火）。
+        /// 仅精确监听 performed 阶段，避免 started/canceled 无效触发。
+        /// </summary>
+        public void BindButton(
+            string actionName,
+            Action onPerformed,
+            CancellationToken ct = default)
+        {
+            if (onPerformed == null) return;
+
+            // 只监听 performed
+            BindInternal(
+                actionName,
+                onPerformed: _ => onPerformed(),
+                ct: ct);
+        }
+
+        public void BindButton<T>(
+            string actionName,
+            Action<T> onPerformed,
+            CancellationToken ct = default) where T : struct
+        {
+            if (onPerformed == null) return;
+
+            // 只监听 performed，并在此时读取 T 类型的数据
+            BindInternal(
+                actionName,
+                onPerformed: ctx => onPerformed(ctx.ReadValue<T>()),
+                ct: ct);
+        }
+
+        /// <summary>
+        /// 专用于按住类按键（瞄准、格挡、蓄力等），支持分别监听“按下”与“松开”。
+        /// </summary>
+        public void BindHold(
+            string actionName,
+            Action onDown = null,
+            Action onUp = null,
+            CancellationToken ct = default)
+        {
+            if (onDown == null && onUp == null) return;
+
+            Action<InputAction.CallbackContext> startedCallback = onDown != null ? _ => onDown() : null;
+            Action<InputAction.CallbackContext> canceledCallback = onUp != null ? _ => onUp() : null;
+
+            BindInternal(
+                actionName,
+                onStarted: startedCallback,
+                onCanceled: canceledCallback,
+                ct: ct);
+        }
+        /// <summary>
+        /// 核心私有绑定方法：按需订阅各阶段，并集中管理注销逻辑。
+        /// 哪一个阶段传了回调就监听哪一个，不传则不订阅。
+        /// </summary>
+        private void BindInternal(
+            string actionName,
+            Action<InputAction.CallbackContext> onStarted = null,
+            Action<InputAction.CallbackContext> onPerformed = null,
+            Action<InputAction.CallbackContext> onCanceled = null,
+            CancellationToken ct = default)
+        {
+            //未初始化时自动初始化 防止脚本执行时序导致的bug
+            Initialize();
+
+            if (ct.IsCancellationRequested) return;
+
+            InputAction action = FindAction(actionName);
+            if (action == null) return;
+
+            // 按需挂载
+            if (onStarted != null) action.started += onStarted;
+            if (onPerformed != null) action.performed += onPerformed;
+            if (onCanceled != null) action.canceled += onCanceled;
+
+            // 通过 CancellationToken 精准按需解绑
+            if (ct.CanBeCanceled)
+            {
+                ct.Register(() =>
+                {
+                    if (action == null) return;
+                    if (onStarted != null) action.started -= onStarted;
+                    if (onPerformed != null) action.performed -= onPerformed;
+                    if (onCanceled != null) action.canceled -= onCanceled;
+                });
+            }
+        }
+
+        /// <summary>
+        /// 直接读取当前值。若未找到 Action 则返回 default。
+        /// </summary>
+        public T ReadValue<T>(string actionName) where T : struct
+        {
+            var action = FindAction(actionName);
+            return action != null ? action.ReadValue<T>() : default;
+        }
+
+        /// <summary>
+        /// 按键是否正被按住。
+        /// </summary>
+        public bool IsPressed(string actionName)
+        {
+            var action = FindAction(actionName);
+            return action != null && action.IsPressed();
+        }
+
+        /// <summary>
+        /// 获取底层原生 Action。调用方可以在 Start/Awake 中直接缓存该引用。
+        /// </summary>
+        public InputAction GetAction(string actionName)
+        {
+            return FindAction(actionName);
+        }
+
+        private InputAction FindAction(string actionName)
+        {
+            if (string.IsNullOrEmpty(actionName)) return null;
+
+            if (_actionCache.TryGetValue(actionName, out var action))
+            {
+                return action;
+            }
+
+            if (_runtimeActions == null)
+            {
+                Debug.LogError($"[{nameof(InputBinder)}] Runtime Actions 为空！", this);
+                return null;
+            }
+
+            action = _runtimeActions.FindAction(actionName);
+            if (action == null)
+            {
+                Debug.LogWarning($"[{nameof(InputBinder)}] 找不到 Action: \"{actionName}\"", this);
+                return null;
+            }
+
+            _actionCache[actionName] = action;
             return action;
         }
-
-        if (_runtimeActions == null)
-        {
-            Debug.LogError($"[{nameof(InputBinder)}] Runtime Actions 为空！", this);
-            return null;
-        }
-
-        action = _runtimeActions.FindAction(actionName);
-        if (action == null)
-        {
-            Debug.LogWarning($"[{nameof(InputBinder)}] 找不到 Action: \"{actionName}\"", this);
-            return null;
-        }
-
-        _actionCache[actionName] = action;
-        return action;
-    }
-}
-
-/// <summary>
-/// 全局输入门面：
-/// 1. 提供针对 InputBinder 的便捷静态调用（无需手动 ServiceLocator.Get）
-/// 2. 提供直接读取硬件设备（键盘/鼠标）的工具方法
-/// </summary>
-public static class GameInput
-{
-    public static IInputService DefaultInput { get; internal set; }
-
-    // 鼠标检测
-    public static bool GetMouseLeftClick() => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
-    public static bool GetMouseRightClick() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
-    public static bool GetMouseMiddleClick() => Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame;
-
-    public static bool IsMouseLeftPressing() => Mouse.current != null && Mouse.current.leftButton.isPressed;
-    public static bool IsMouseRightPressing() => Mouse.current != null && Mouse.current.rightButton.isPressed;
-    public static bool IsMouseMiddlePressing() => Mouse.current != null && Mouse.current.middleButton.isPressed;
-
-    // 键盘枚举检测
-    public static bool GetKeyDown(Key key) => Keyboard.current != null && Keyboard.current[key].wasPressedThisFrame;
-    public static bool IsKeyPressing(Key key) => Keyboard.current != null && Keyboard.current[key].isPressed;
-    public static bool GetKeyUp(Key key) => Keyboard.current != null && Keyboard.current[key].wasReleasedThisFrame;
-
-    // 键盘字符串检测
-    public static bool GetKeyDown(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasPressedThisFrame;
-    public static bool IsKeyPressing(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.isPressed;
-    public static bool GetKeyUp(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasReleasedThisFrame;
-
-}
-
-public static class InputExtensions
-{
-
-    public static InputBindingScope AsInput(this MonoBehaviour mono, CancellationToken customToken = default)
-    {
-        return mono.AsInput(GameInput.DefaultInput, customToken);
     }
 
-    public static InputBindingScope AsInput(this MonoBehaviour mono, IInputBinder binder, CancellationToken customToken = default)
+    /// <summary>
+    /// 全局输入门面：
+    /// 1. 提供针对 InputBinder 的便捷静态调用（无需手动 ServiceLocator.Get）
+    /// 2. 提供直接读取硬件设备（键盘/鼠标）的工具方法
+    /// </summary>
+    public static class GameInput
+    {
+        public static IInputService DefaultInput { get; internal set; }
+
+        // 鼠标检测
+        public static bool GetMouseLeftClick() => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+        public static bool GetMouseRightClick() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
+        public static bool GetMouseMiddleClick() => Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame;
+
+        public static bool IsMouseLeftPressing() => Mouse.current != null && Mouse.current.leftButton.isPressed;
+        public static bool IsMouseRightPressing() => Mouse.current != null && Mouse.current.rightButton.isPressed;
+        public static bool IsMouseMiddlePressing() => Mouse.current != null && Mouse.current.middleButton.isPressed;
+
+        // 键盘枚举检测
+        public static bool GetKeyDown(Key key) => Keyboard.current != null && Keyboard.current[key].wasPressedThisFrame;
+        public static bool IsKeyPressing(Key key) => Keyboard.current != null && Keyboard.current[key].isPressed;
+        public static bool GetKeyUp(Key key) => Keyboard.current != null && Keyboard.current[key].wasReleasedThisFrame;
+
+        // 键盘字符串检测
+        public static bool GetKeyDown(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasPressedThisFrame;
+        public static bool IsKeyPressing(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.isPressed;
+        public static bool GetKeyUp(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasReleasedThisFrame;
+
+    }
+
+    public static class InputExtensions
     {
 
-        if (binder == null)
+        public static InputBindingScope AsInput(this MonoBehaviour mono, CancellationToken customToken = default)
         {
-            throw new ArgumentNullException(
-                nameof(binder),
-                $"[{nameof(InputExtensions)}] 传入的 {nameof(IInputBinder)} 为空！调用者: {mono.name}");
+            return mono.AsInput(GameInput.DefaultInput, customToken);
         }
 
-        CancellationToken effectiveToken;
-        if (!customToken.CanBeCanceled)
+        public static InputBindingScope AsInput(this MonoBehaviour mono, IInputBinder binder, CancellationToken customToken = default)
         {
-            effectiveToken = mono.destroyCancellationToken;
-        }
-        else
-        {
-            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                mono.destroyCancellationToken,
-                customToken
-            );
 
-            linkedCts.Token.Register(static state =>
+            if (binder == null)
             {
-                if (state is CancellationTokenSource cts)
-                {
-                    cts.Dispose();
-                }
-            }, linkedCts);
+                throw new ArgumentNullException(
+                    nameof(binder),
+                    $"[{nameof(InputExtensions)}] 传入的 {nameof(IInputBinder)} 为空！调用者: {mono.name}");
+            }
 
-            effectiveToken = linkedCts.Token;
+            CancellationToken effectiveToken;
+            if (!customToken.CanBeCanceled)
+            {
+                effectiveToken = mono.destroyCancellationToken;
+            }
+            else
+            {
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    mono.destroyCancellationToken,
+                    customToken
+                );
+
+                linkedCts.Token.Register(static state =>
+                {
+                    if (state is CancellationTokenSource cts)
+                    {
+                        cts.Dispose();
+                    }
+                }, linkedCts);
+
+                effectiveToken = linkedCts.Token;
+            }
+
+            return new InputBindingScope(binder, effectiveToken);
         }
 
-        return new InputBindingScope(binder, effectiveToken);
-    }
-
-}
-
-/// <summary>
-/// 纯栈上分配的结构体，链式调用产生 0 GC Alloc
-/// </summary>
-public readonly struct InputBindingScope
-{
-    private readonly IInputBinder _binder;
-    private readonly CancellationToken _ct;
-
-    public InputBindingScope(IInputBinder binder, CancellationToken ct)
-    {
-        _binder = binder;
-        _ct = ct;
     }
 
     /// <summary>
-    /// 监听单次点击（performed）
+    /// 纯栈上分配的结构体，链式调用产生 0 GC Alloc
     /// </summary>
-    public readonly InputBindingScope BindButton(string actionName, Action onPerformed)
+    public readonly struct InputBindingScope
     {
-        _binder.BindButton(actionName, onPerformed, _ct);
-        return this;
-    }
+        private readonly IInputBinder _binder;
+        private readonly CancellationToken _ct;
 
-    public readonly InputBindingScope BindButton<T>(string actionName, Action<T> onPerformed) where T : struct
-    {
-        _binder.BindButton(actionName, onPerformed, _ct);
-        return this;
-    }
-    /// <summary>
-    /// 监听按住与松开（started / canceled）
-    /// </summary>
-    public readonly InputBindingScope BindHold(string actionName, Action onDown = null, Action onUp = null)
-    {
-        _binder.BindHold(actionName, onDown, onUp, _ct);
-        return this;
-    }
+        public InputBindingScope(IInputBinder binder, CancellationToken ct)
+        {
+            _binder = binder;
+            _ct = ct;
+        }
 
-    /// <summary>
-    /// 监听连续值（如 Vector2 移动摇杆）
-    /// </summary>
-    public readonly InputBindingScope BindValue<T>(string actionName, Action<T> onValueChanged) where T : struct
-    {
-        _binder.BindValue(actionName, onValueChanged, _ct);
-        return this;
-    }
+        /// <summary>
+        /// 监听单次点击（performed）
+        /// </summary>
+        public readonly InputBindingScope BindButton(string actionName, Action onPerformed)
+        {
+            _binder.BindButton(actionName, onPerformed, _ct);
+            return this;
+        }
 
-    /// <summary>
-    /// 监听完整阶段（started / performed / canceled）
-    /// </summary>
-    public readonly InputBindingScope Bind(string actionName, Action<InputAction.CallbackContext> callback)
-    {
-        _binder.Bind(actionName, callback, _ct);
-        return this;
+        public readonly InputBindingScope BindButton<T>(string actionName, Action<T> onPerformed) where T : struct
+        {
+            _binder.BindButton(actionName, onPerformed, _ct);
+            return this;
+        }
+        /// <summary>
+        /// 监听按住与松开（started / canceled）
+        /// </summary>
+        public readonly InputBindingScope BindHold(string actionName, Action onDown = null, Action onUp = null)
+        {
+            _binder.BindHold(actionName, onDown, onUp, _ct);
+            return this;
+        }
+
+        /// <summary>
+        /// 监听连续值（如 Vector2 移动摇杆）
+        /// </summary>
+        public readonly InputBindingScope BindValue<T>(string actionName, Action<T> onValueChanged) where T : struct
+        {
+            _binder.BindValue(actionName, onValueChanged, _ct);
+            return this;
+        }
+
+        /// <summary>
+        /// 监听完整阶段（started / performed / canceled）
+        /// </summary>
+        public readonly InputBindingScope Bind(string actionName, Action<InputAction.CallbackContext> callback)
+        {
+            _binder.Bind(actionName, callback, _ct);
+            return this;
+        }
     }
 }

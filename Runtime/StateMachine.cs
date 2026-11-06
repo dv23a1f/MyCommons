@@ -12,7 +12,7 @@ using UnityEngine;
 using UnityEngine.Scripting;
 using UnityEngine.Assertions;
 
-namespace Framework.ReactiveStateMachine
+namespace DX.Core.ReactiveStateMachine
 {
     //============================================
     // 强类型声明式/响应式状态管理框架: Unity-RxFSM (支持多种驱动模式)

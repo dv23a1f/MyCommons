@@ -21,8 +21,8 @@ using UnityEngine.Scripting;
 /* 
 需安装 com.unity.nuget.newtonsoft-json
  */
- 
-namespace Framework.SaveManagement
+
+namespace DX.Core.SaveManagement
 {
     /// <summary>
     /// 标记需要存档的字段或属性。(白名单模式：仅被此特性标记的成员会被保存，未标记的将被忽略)

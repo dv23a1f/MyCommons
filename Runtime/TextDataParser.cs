@@ -7,7 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
-namespace Utility.TextDriven
+namespace DX.Core.TextDriven
 {
     /// <summary>
     /// 数据上下文提供者接口

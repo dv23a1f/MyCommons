@@ -1,16 +1,16 @@
 {
-    "name": "MyCommons",
+    "name": "DX.Core.Editor",
     "rootNamespace": "",
     "references": [
-        "Unity.InputSystem"
+        "MyCommons"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": true,
-    "precompiledReferences": [
-        "Newtonsoft.Json.dll"
-    ],
+    "overrideReferences": false,
+    "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],

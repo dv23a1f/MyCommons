@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 
 #region InterfaceScanner
 
-namespace Utility.InterfaceScanner
+namespace DX.Core.Utility.InterfaceScanner
 {
     public static class InterfaceScanner
     {
@@ -117,7 +117,7 @@ namespace Utility.InterfaceScanner
 
 #region SmoothDamp
 
-namespace Utility.SmoothDamp
+namespace DX.Core.Utility.SmoothDamp
 {
     [Serializable]
     public class SmoothDampVector3

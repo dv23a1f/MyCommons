@@ -18,7 +18,7 @@ namespace System.Runtime.CompilerServices
 }
 
 #endif
-namespace Utility.Extensions
+namespace DX.Core.Utility.Extensions
 {
     public static class UnityObjectExtensions
     {
@@ -1004,7 +1004,7 @@ namespace Utility.Extensions
 
     }
     #endregion
-	
+
     #region Rb2dSmoothDamp
 
     public static class Rigidbody2DExtensions

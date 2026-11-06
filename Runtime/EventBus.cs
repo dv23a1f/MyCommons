@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 
-namespace Framework.MessageHandler
+namespace DX.Core.Message
 {
     public static class EventBus
     {
