@@ -4,9 +4,9 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
-using Framework.ReactiveStateMachine;
+using DX.Core.ReactiveStateMachine;
 
-namespace Framework.ReactiveStateMachine.Editor
+namespace DX.Core.ReactiveStateMachine.Editor
 {
     public class StateMachineDebuggerWindow : EditorWindow
     {
