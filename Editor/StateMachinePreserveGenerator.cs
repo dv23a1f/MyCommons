@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
-using Utils.ReactiveStateMachine;
+using Framework.ReactiveStateMachine;
 
 // 这个类会在打包(Build) IL2CPP 前自动运行
 public class StateMachinePreserveGenerator : IPreprocessBuildWithReport
