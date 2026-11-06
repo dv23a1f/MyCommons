@@ -1004,4 +1004,163 @@ namespace Utility.Extensions
 
     }
     #endregion
+	
+    #region Rb2dSmoothDamp
+
+    public static class Rigidbody2DExtensions
+    {
+        private class Smooth2DData
+        {
+            public Vector2 MoveAcceleration;  // 速度变化的一阶导（即加速度）
+            public Vector2 PosVelocity;       // 定点平滑时的虚拟导数
+        }
+
+        private static readonly ConditionalWeakTable<Rigidbody2D, Smooth2DData> _table = new();
+
+        /// <summary>
+        /// 【横版平台跳跃专用】平滑控制水平移动，自动保留物理重力和跳跃 (Y 轴速度不变)
+        /// </summary>
+        public static void SmoothDampHorizontal(
+            this Rigidbody2D rb,
+            float inputHorizontal,
+            float targetSpeed,
+            float smoothTime = 0.1f,
+            float stopThreshold = 0.01f,
+            float? customFixedDeltaTime = null)
+        {
+            Smooth2DData data = _table.GetOrCreateValue(rb);
+            float dt = customFixedDeltaTime ?? Time.fixedDeltaTime;
+
+            // Unity 6+ 使用 linearVelocity，旧版本请换成 rb.velocity
+            Vector2 currentVel = rb.linearVelocity;
+            bool hasNoInput = Mathf.Abs(inputHorizontal) < 0.0001f;
+
+            // 静止短路优化
+            if (hasNoInput && Mathf.Abs(currentVel.x) < stopThreshold)
+            {
+                rb.linearVelocity = new Vector2(0f, currentVel.y);
+                data.MoveAcceleration.x = 0f;
+                return;
+            }
+
+            float targetSpeedX = inputHorizontal * targetSpeed;
+            float currentAccelX = data.MoveAcceleration.x;
+
+            // 仅对 X 轴进行平滑
+            float newSpeedX = Mathf.SmoothDamp(
+                currentVel.x,
+                targetSpeedX,
+                ref currentAccelX,
+                smoothTime,
+                Mathf.Infinity,
+                dt
+            );
+            data.MoveAcceleration.x = currentAccelX;
+
+            // 保留原有的 Y 轴物理速度（重力、跳跃等）
+            rb.linearVelocity = new Vector2(newSpeedX, currentVel.y);
+        }
+
+        /// <summary>
+        /// 【俯视角 Top-Down 专用】全向平滑移动
+        /// </summary>
+        public static void SmoothDampMove(
+            this Rigidbody2D rb,
+            Vector2 inputDirection,
+            float targetSpeed,
+            float smoothTime = 0.1f,
+            float stopThreshold = 0.01f,
+            float? customFixedDeltaTime = null)
+        {
+            Smooth2DData data = _table.GetOrCreateValue(rb);
+            float dt = customFixedDeltaTime ?? Time.fixedDeltaTime;
+
+            Vector2 currentVel = rb.linearVelocity;
+            bool hasNoInput = inputDirection.sqrMagnitude < 0.0001f;
+            float sqrThreshold = stopThreshold * stopThreshold;
+
+            // 静止短路
+            if (hasNoInput && currentVel.sqrMagnitude < sqrThreshold)
+            {
+                rb.linearVelocity = Vector2.zero;
+                data.MoveAcceleration = Vector2.zero;
+                return;
+            }
+
+            Vector2 targetVel = hasNoInput ? Vector2.zero : inputDirection.normalized * targetSpeed;
+            Vector2 currentAccel = data.MoveAcceleration;
+
+            // 平滑速度向量
+            Vector2 newVel = Vector2.SmoothDamp(
+                currentVel,
+                targetVel,
+                ref currentAccel,
+                smoothTime,
+                Mathf.Infinity,
+                dt
+            );
+            data.MoveAcceleration = currentAccel;
+
+            rb.linearVelocity = newVel;
+        }
+
+        /// <summary>
+        /// 平滑移动刚体到绝对坐标（使用 MovePosition 保证不会穿墙）
+        /// </summary>
+        public static bool SmoothDampPosition(
+            this Rigidbody2D rb,
+            Vector2 targetPosition,
+            float smoothTime = 0.2f,
+            float maxSpeed = Mathf.Infinity,
+            float snapThreshold = 0.01f,
+            float? customFixedDeltaTime = null)
+        {
+            Smooth2DData data = _table.GetOrCreateValue(rb);
+            float dt = customFixedDeltaTime ?? Time.fixedDeltaTime;
+
+            Vector2 currentPos = rb.position;
+            Vector2 toTarget = targetPosition - currentPos;
+            float sqrDist = toTarget.sqrMagnitude;
+            float sqrThreshold = snapThreshold * snapThreshold;
+
+            // 吸附完成判断
+            if (sqrDist < sqrThreshold && data.PosVelocity.sqrMagnitude < sqrThreshold)
+            {
+                rb.MovePosition(targetPosition);
+                data.PosVelocity = Vector2.zero;
+                data.MoveAcceleration = Vector2.zero;
+                rb.linearVelocity = Vector2.zero;
+                return true;
+            }
+
+            Vector2 currentVel = data.PosVelocity;
+            Vector2 nextPos = Vector2.SmoothDamp(
+                currentPos,
+                targetPosition,
+                ref currentVel,
+                smoothTime,
+                maxSpeed,
+                dt
+            );
+            data.PosVelocity = currentVel;
+
+            // 【关键点】使用 MovePosition 走物理通道，保证碰墙被挡住，绝不穿模
+            rb.MovePosition(nextPos);
+
+            return false;
+        }
+
+        public static void ResetSmoothMovement(this Rigidbody2D rb)
+        {
+            if (_table.TryGetValue(rb, out var data))
+            {
+                data.MoveAcceleration = Vector2.zero;
+                data.PosVelocity = Vector2.zero;
+            }
+            rb.linearVelocity = Vector2.zero;
+        }
+
+    }
+
+    #endregion
 }
