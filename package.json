@@ -1,0 +1,13 @@
+{
+  "name": "com.dx520.commons",
+  "version": "1.0.0",
+  "displayName": "My Common Scripts",
+  "description": "Common Scripts",
+  "unity": "2021.3", 
+  "author": {
+    "name": "dx520"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.2"
+  }
+}
