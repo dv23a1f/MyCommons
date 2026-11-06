@@ -32,7 +32,7 @@ public class StateMachinePreserveGenerator : IPreprocessBuildWithReport
         GenerateLinkXml();
     }
 
-    [MenuItem("Tools/StateMachine/手动生成 StateMachine link.xml")]
+    [MenuItem("Tools/PreserveGenerator/手动生成 StateMachine link.xml")]
     public static void GenerateLinkXml()
     {
         // 1. 找到状态基类或接口
