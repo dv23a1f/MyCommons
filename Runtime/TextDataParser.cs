@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -795,10 +794,13 @@ namespace Utility.TextDriven
 
             // 3. 扫描字段 (Field)
             FieldInfo[] fields = targetType.GetFields(
-                BindingFlags.Instance | BindingFlags.Public);
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
             foreach (var field in fields)
             {
+                if (!field.IsPublic && !field.IsDefined(typeof(SerializeField), true))
+                    continue;
+
                 if (!TypeValidator.IsSupported(field.FieldType))
                     continue;
 
@@ -887,9 +889,12 @@ namespace Utility.TextDriven
             string prefixStr = string.IsNullOrWhiteSpace(prefix) ? "" : $"{prefix.Trim()}.";
 
             // 1. 扫描字段
-            FieldInfo[] fields = targetType.GetFields(BindingFlags.Instance | BindingFlags.Public);
+            FieldInfo[] fields = targetType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             foreach (var field in fields)
             {
+                if (!field.IsPublic && !field.IsDefined(typeof(SerializeField), true))
+                    continue;
+
                 if (!TypeValidator.IsSupported(field.FieldType))
                     continue;
 
