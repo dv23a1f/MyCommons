@@ -1753,7 +1753,7 @@ namespace DX.Core.SaveManagement
 //! ============================================
 //! Adapters
 //! ============================================
-namespace Framework.SaveManagement.Storage
+namespace DX.Core.SaveManagement.Storage
 {
 
     // 存档包
@@ -2358,7 +2358,7 @@ namespace Framework.SaveManagement.Storage
 //!==============================
 // !Converter
 //!==============================
-namespace Framework.SaveManagement
+namespace DX.Core.SaveManagement
 {
     public static class SaveConvert
     {
@@ -2469,7 +2469,7 @@ namespace Framework.SaveManagement
     }
 }
 
-namespace Framework.SaveManagement.Converters
+namespace DX.Core.SaveManagement.Converters
 {
 
     /// <summary>
@@ -2765,7 +2765,7 @@ namespace Framework.SaveManagement.Converters
 //! ======================================
 //! 
 //! ======================================
-namespace Framework.SaveManagement.Internal
+namespace DX.Core.SaveManagement.Internal
 {
     /// <summary>
     /// 存档序列化协议保留字与多态契约常量
@@ -3474,7 +3474,7 @@ namespace Framework.SaveManagement.Internal
 //! ============================================
 //! 事件相关
 //! ============================================
-namespace Framework.SaveManagement.Events
+namespace DX.Core.SaveManagement.Events
 {
     /// <summary>
     /// 对外暴露的只读存档事件订阅总线
@@ -3595,7 +3595,7 @@ namespace Framework.SaveManagement.Events
     }
 }
 
-namespace Framework.SaveManagement.Security
+namespace DX.Core.SaveManagement.Security
 {
     //!========================================
     public static class SafeFileUtil
@@ -3760,7 +3760,7 @@ namespace Framework.SaveManagement.Security
 //! ============================================
 //! 数据快照容器
 //! ============================================
-namespace Framework.SaveManagement
+namespace DX.Core.SaveManagement
 {
     /// <summary>
     /// 通用 3D Transform 存档数据快照
