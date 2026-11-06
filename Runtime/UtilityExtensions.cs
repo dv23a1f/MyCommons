@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Pool;
@@ -642,129 +641,6 @@ namespace Utility.Extensions
         }
 
         // 更多参数的 Action<T1, T2> 可以依此类推添加...
-    }
-
-    #endregion
-    #region Cancellation
-    public static class MonoBehaviourCancellationExtensions
-    {
-
-        public static CancellationToken GetSafeDestroyToken(this MonoBehaviour mono)
-        {
-            if (mono == null)
-            {
-                return new CancellationToken(canceled: true);
-            }
-
-            if (mono.gameObject.activeInHierarchy)
-            {
-                return mono.destroyCancellationToken;
-            }
-
-            return mono.gameObject.GetCancellationTokenOnDestroy();
-
-        }
-        /// <summary>
-        /// 获取当前 MonoBehaviour 销毁时触发的 Token，可选择性合并一个外部 Token
-        /// </summary>
-        public static CancellationToken GetLinkedDestroyToken(this MonoBehaviour mono, CancellationToken externalToken = default)
-        {
-            if (mono == null) throw new ArgumentNullException(nameof(mono));
-
-            if (externalToken == default || externalToken == CancellationToken.None || externalToken.CanBeCanceled == false)
-            {
-                return mono.GetSafeDestroyToken();
-            }
-
-            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(mono.GetSafeDestroyToken(), externalToken);
-
-            // 任何一个取消时自动释放 linkedCts，防止内存泄漏
-            linkedCts.Token.Register(() => linkedCts.Dispose());
-
-            return linkedCts.Token;
-        }
-
-        /// <summary>
-        /// 将多个 MonoBehaviour（和可选的外部 Token）合并为一个销毁 Token
-        /// 内部已做高效去重（包括同一 GameObject 上的多个组件去重）
-        /// </summary>
-        public static CancellationToken CreateLinkedDestroyToken(
-            this IEnumerable<MonoBehaviour> monos,
-            CancellationToken externalToken = default)
-        {
-            if (monos == null) return externalToken;
-
-            var uniqueGameObjects = HashSetPool<GameObject>.Get();
-            var tokens = ListPool<CancellationToken>.Get();
-
-            try
-            {
-                foreach (var mono in monos)
-                {
-                    if (mono == null) return new CancellationToken(canceled: true);
-
-                    if (uniqueGameObjects.Add(mono.gameObject))
-                    {
-                        tokens.Add(mono.GetSafeDestroyToken());
-                    }
-                }
-
-                if (externalToken.CanBeCanceled && !tokens.Contains(externalToken))
-                {
-                    tokens.Add(externalToken);
-                }
-
-                if (tokens.Count == 0) return CancellationToken.None;
-                if (tokens.Count == 1) return tokens[0];
-
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(tokens.ToArray());
-                linkedCts.Token.Register(() => linkedCts.Dispose());
-                return linkedCts.Token;
-            }
-            finally
-            {
-                HashSetPool<GameObject>.Release(uniqueGameObjects);
-                ListPool<CancellationToken>.Release(tokens);
-            }
-        }
-
-        /// <summary>
-        /// 将当前 MonoBehaviour 与其他多个 MonoBehaviour 的销毁 Token 进行 Link
-        /// 只要其中任意一个被销毁，返回的 Token 就会触发取消
-        /// </summary>
-        public static CancellationToken GetLinkedDestroyToken(this MonoBehaviour mono, params MonoBehaviour[] others)
-        {
-            if (mono == null) return new CancellationToken(canceled: true);
-            if (others == null || others.Length == 0) return mono.GetSafeDestroyToken();
-
-            var list = new List<MonoBehaviour>(others.Length + 1) { mono };
-            list.AddRange(others);
-
-            return list.CreateLinkedDestroyToken();
-        }
-
-        /// <summary>
-        /// 绑定自身与另一个目标
-        /// </summary>
-        public static CancellationToken GetLinkedDestroyToken(this MonoBehaviour mono, MonoBehaviour other)
-        {
-            if (mono == null) return new CancellationToken(canceled: true);
-
-            // 1. 如果没有传入对方，或者对方根本就在同一个 GameObject 上，直接返回自身的 Token
-            if (other == null || ReferenceEquals(mono.gameObject, other.gameObject))
-            {
-                return mono.GetSafeDestroyToken();
-            }
-
-            // 2. 只有确实属于两个不同 GameObject 时，才进行 Link
-            var tokenA = mono.GetSafeDestroyToken();
-            var tokenB = other.GetSafeDestroyToken();
-
-            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(tokenA, tokenB);
-            linkedCts.Token.Register(() => linkedCts.Dispose());
-
-            return linkedCts.Token;
-        }
     }
 
     #endregion
