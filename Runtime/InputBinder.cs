@@ -95,15 +95,23 @@ namespace DX.Core.Input
 
             if (_assetTemplate != null)
             {
-
+                if (_setAsGlobalDefault)
+                {
+                    if (GameInput.DefaultInput == null)
+                    {
+                        GameInput.DefaultInput = this;
+                        this.transform.SetParent(null);
+                        this.gameObject.name = $"[Global] {this.gameObject.name}";
+                        DontDestroyOnLoad(this.gameObject);
+                    }
+                    else
+                    {
+                        Destroy(this.gameObject);
+                    }
+                }
                 _runtimeActions = Instantiate(_assetTemplate);
                 _runtimeActions.Enable();
                 _initialized = true;
-
-                if (_setAsGlobalDefault)
-                {
-                    GameInput.DefaultInput = this;
-                }
             }
             else
             {
