@@ -37,14 +37,17 @@ namespace DX.Core.SceneManagement
     public struct TransitionRequest
     {
         public string TargetSceneName;
-        public Action OnLoadedBeforeFadeIn;
+        /// <summary> 回调函数，提供 CancellationToken 用于超时中止 </summary>
+        public Func<CancellationToken, UniTask> OnLoadedBeforeFadeIn;
+        /// <summary> 超时时间（秒），<= 0 表示不超时无限等待 </summary>
+        public float TimeoutSeconds;
 
-        public TransitionRequest(string targetSceneName, Action onLoadedBeforeFadeIn = null)
+        public TransitionRequest(string targetSceneName, Func<CancellationToken, UniTask> onLoadedBeforeFadeIn = null, float timeoutSeconds = 0f)
         {
             TargetSceneName = targetSceneName;
             OnLoadedBeforeFadeIn = onLoadedBeforeFadeIn;
+            TimeoutSeconds = timeoutSeconds;
         }
-
         public static implicit operator TransitionRequest(string targetSceneName) => new(targetSceneName);
     }
 
@@ -124,24 +127,46 @@ namespace DX.Core.SceneManagement
                     await UniTask.Yield();
                 }
 
-                CurrentView?.OnUpdateProgress(1f);
+                // 允许激活并等待新场景完全加载（Awake/Start执行）
+                op.allowSceneActivation = true;
+                await op;
+                // 确保初始生命周期执行完成
+                await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
 
+                // 执行进入新场景后的准备工作（带超时控制）
+                // 此时新场景对象已经可以安全访问
+                if (request.OnLoadedBeforeFadeIn != null)
+                {
+                    try
+                    {
+                        if (request.TimeoutSeconds > 0)
+                        {
+                            using var cts = new CancellationTokenSource();
+                            cts.CancelAfterSlim(TimeSpan.FromSeconds(request.TimeoutSeconds));
+                            await request.OnLoadedBeforeFadeIn(cts.Token);
+                        }
+                        else
+                        {
+                            await request.OnLoadedBeforeFadeIn(CancellationToken.None);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Debug.LogWarning($"[SceneTransitioner] 场景 [{request.TargetSceneName}] 的 OnLoadedBeforeFadeIn 超时，已跳过。");
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+                }
+
+                // 进度条真正达到 100%
+                CurrentView?.OnUpdateProgress(1f);
+                // 等待用户确认
                 if (CurrentView != null)
                 {
                     await CurrentView.OnWaitForConfirmAsync();
                 }
-
-                op.allowSceneActivation = true;
-                await op;
-
-                await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
-
-                // 请求自带的特定加载回调
-                try
-                {
-                    request.OnLoadedBeforeFadeIn?.Invoke();
-                }
-                catch (Exception e) { Debug.LogException(e); }
 
                 // 3. 广播：加载完成后、淡入前
                 SafeBroadcast(SceneTransitionPhase.AfterSceneLoad, request.TargetSceneName);
