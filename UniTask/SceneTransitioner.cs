@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Sirenix.Utilities;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -71,9 +72,9 @@ namespace DX.Core.SceneManagement
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void AutoClear()
         {
-            CurrentView = null;
-            Listeners.Clear();
+            Listeners.ForEach(kvp => kvp.Value?.Clear());
             PreviousSceneName = null;
+            CurrentView = null;
         }
 
         static SceneTransitioner()
