@@ -63,7 +63,7 @@ namespace DX.Core.SceneManagement
     {
         public static string PreviousSceneName { get; private set; }
         public static ISceneTransitionView CurrentView { get; set; }
-        public static int DelayFramesAfterLoaded { get; set; } = 10;
+        public static int DelayFramesAfterLoaded { get; set; } = 5;
         public static bool IsProcessing { get; private set; }
 
         private static readonly Dictionary<SceneTransitionPhase, List<Action<string>>> Listeners = new();
@@ -98,7 +98,10 @@ namespace DX.Core.SceneManagement
                 CurrentView?.OnUpdateProgress(0f);
 
                 if (CurrentView != null)
+                {
+                    // UI淡出
                     await CurrentView.ShowOverlayAsync();
+                }
 
                 // 2. 广播：加载前
                 SafeBroadcast(SceneTransitionPhase.BeforeSceneLoad, request.TargetSceneName);
@@ -134,10 +137,13 @@ namespace DX.Core.SceneManagement
                 // 3. 广播：加载完成后、淡入前
                 SafeBroadcast(SceneTransitionPhase.AfterSceneLoad, request.TargetSceneName);
 
-                await UniTask.DelayFrame(DelayFramesAfterLoaded, PlayerLoopTiming.Update);
-
                 if (CurrentView != null)
+                {
+                    // 额外等待几帧，避免淡入跳变
+                    await UniTask.DelayFrame(DelayFramesAfterLoaded, PlayerLoopTiming.Update);
+                    // UI淡入
                     await CurrentView.HideOverlayAsync();
+                }
 
                 // 4. 广播：全流程结束
                 SafeBroadcast(SceneTransitionPhase.TransitionCompleted, request.TargetSceneName);
