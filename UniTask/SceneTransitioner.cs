@@ -37,14 +37,25 @@ namespace DX.Core.SceneManagement
     public struct TransitionRequest
     {
         public string TargetSceneName;
+        /// <summary> 是否启用淡入淡出等过渡效果（需配置 ISceneTransitionView，默认true） </summary>
+        public bool EnableTransitionView;
         /// <summary> 回调函数，提供 CancellationToken 用于超时中止 </summary>
         public Func<CancellationToken, UniTask> OnLoadedBeforeFadeIn;
         /// <summary> 超时时间（秒），<= 0 表示不超时无限等待 </summary>
         public float TimeoutSeconds;
+        /// <summary> 加载及初始化期间是否冻结游戏时间（Time.timeScale = 0） </summary>
+        public bool FreezeTimeDuringTransition;
 
-        public TransitionRequest(string targetSceneName, Func<CancellationToken, UniTask> onLoadedBeforeFadeIn = null, float timeoutSeconds = 0f)
+        public TransitionRequest(
+            string targetSceneName,
+            bool enableTransitionView = true,
+            bool freezeTimeDuringTransition = true,
+            Func<CancellationToken, UniTask> onLoadedBeforeFadeIn = null,
+            float timeoutSeconds = 0f)
         {
             TargetSceneName = targetSceneName;
+            EnableTransitionView = enableTransitionView;
+            FreezeTimeDuringTransition = freezeTimeDuringTransition;
             OnLoadedBeforeFadeIn = onLoadedBeforeFadeIn;
             TimeoutSeconds = timeoutSeconds;
         }
@@ -99,31 +110,57 @@ namespace DX.Core.SceneManagement
             }
 
             IsProcessing = true;
+            bool enableTransitionView = CurrentView != null && request.EnableTransitionView;
+
+            float originalTimeScale = Time.timeScale;
 
             try
             {
                 PreviousSceneName = SceneManager.GetActiveScene().name;
 
-                // 1. 广播：切换开始
+                // 广播：切换开始
                 SafeBroadcast(SceneTransitionPhase.TransitionStarted, request.TargetSceneName);
 
                 CurrentView?.OnUpdateProgress(0f);
 
-                if (CurrentView != null)
+                if (enableTransitionView)
                 {
-                    // UI淡出
-                    await CurrentView.ShowOverlayAsync();
+                    try
+                    {
+                        // UI淡出
+                        await CurrentView.ShowOverlayAsync();
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
                 }
 
-                // 2. 广播：加载前
+                // 广播：加载前
                 SafeBroadcast(SceneTransitionPhase.BeforeSceneLoad, request.TargetSceneName);
+
+                // 冻结时间
+                if (request.FreezeTimeDuringTransition)
+                {
+                    Time.timeScale = 0f;
+                }
 
                 var op = SceneManager.LoadSceneAsync(request.TargetSceneName);
                 op.allowSceneActivation = false;
 
                 while (op.progress < 0.9f)
                 {
-                    CurrentView?.OnUpdateProgress(Mathf.Clamp01(op.progress / 0.9f));
+                    if (enableTransitionView)
+                    {
+                        try
+                        {
+                            CurrentView.OnUpdateProgress(op.progress);
+                        }
+                        catch (System.Exception e)
+                        {
+                            Debug.LogException(e);
+                        }
+                    }
                     await UniTask.Yield();
                 }
 
@@ -160,30 +197,54 @@ namespace DX.Core.SceneManagement
                     }
                 }
 
-                // 进度条真正达到 100%
-                CurrentView?.OnUpdateProgress(1f);
                 // 等待用户确认
-                if (CurrentView != null)
+                if (enableTransitionView)
                 {
-                    await CurrentView.OnWaitForConfirmAsync();
+                    try
+                    {
+                        // 进度条真正达到 100%
+                        CurrentView.OnUpdateProgress(1f);
+                        await CurrentView.OnWaitForConfirmAsync();
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
                 }
 
-                // 3. 广播：加载完成后、淡入前
+                // 恢复时间
+                if (request.FreezeTimeDuringTransition)
+                {
+                    Time.timeScale = originalTimeScale;
+                }
+
+                // 广播：加载完成后、淡入前
                 SafeBroadcast(SceneTransitionPhase.AfterSceneLoad, request.TargetSceneName);
 
-                if (CurrentView != null)
+                if (enableTransitionView)
                 {
-                    // 额外等待几帧，避免淡入跳变
-                    await UniTask.DelayFrame(DelayFramesAfterLoaded, PlayerLoopTiming.Update);
-                    // UI淡入
-                    await CurrentView.HideOverlayAsync();
+                    try
+                    {
+                        // 额外等待几帧，避免淡入跳变
+                        await UniTask.DelayFrame(DelayFramesAfterLoaded, PlayerLoopTiming.Update);
+                        // UI淡入
+                        await CurrentView.HideOverlayAsync();
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
                 }
 
-                // 4. 广播：全流程结束
+                // 广播：全流程结束
                 SafeBroadcast(SceneTransitionPhase.TransitionCompleted, request.TargetSceneName);
             }
             finally
             {
+                if (request.FreezeTimeDuringTransition)
+                {
+                    Time.timeScale = originalTimeScale;
+                }
                 IsProcessing = false;
             }
         }
