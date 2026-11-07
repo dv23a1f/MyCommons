@@ -3,11 +3,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Xml;
+using DX.Core.ReactiveStateMachine;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
-using DX.Core.ReactiveStateMachine;
 
 // 这个类会在打包(Build) IL2CPP 前自动运行
 public class StateMachinePreserveGenerator : IPreprocessBuildWithReport
