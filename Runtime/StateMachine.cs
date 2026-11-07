@@ -11,6 +11,8 @@ using System.Runtime.ExceptionServices;
 using UnityEngine;
 using UnityEngine.Scripting;
 using UnityEngine.Assertions;
+using DX.Core.Utility;
+using DX.Core.ReactiveVariable;
 
 namespace DX.Core.ReactiveStateMachine
 {
@@ -418,13 +420,11 @@ namespace DX.Core.ReactiveStateMachine
         /// 获取响应式只读代理（单例缓存复用，0 GC，免疫 Router 重绑）。
         /// 支持后接 .Select() 进行数据映射投影，或接 .Where() 进行条件过滤。
         /// </summary>
-        IReadOnlySharedVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>;
+        IReadOnlyReactiveVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>;
 
         /// <summary>直接穿透读取当前变量的最新值</summary>
         TValue Read<TVar, TValue>() where TVar : SharedVar<TValue>;
 
-        /// <summary>直接穿透读取当前变量的基准初始值</summary>
-        TValue ReadBase<TVar, TValue>() where TVar : SharedVar<TValue>;
     }
 
     /// <summary>
@@ -435,7 +435,7 @@ namespace DX.Core.ReactiveStateMachine
         /// <summary>
         /// 获取可读写响应式代理（单例缓存复用，0 GC，免疫 Router 重绑）。
         /// </summary>
-        new ISharedVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>;
+        new IReactiveVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>;
 
         /// <summary>修改值</summary>
         void Set<TVar, TValue>(TValue value) where TVar : SharedVar<TValue>;
@@ -1495,7 +1495,7 @@ namespace DX.Core.ReactiveStateMachine
         public bool StopOnDispose { get; set; } = false;
 
         // 代表 AnyState，匹配任意状态
-        private static Type AnyStateKey => AssemblyTypeHolder.AnyStateKey;
+        private static Type AnyStateKey => typeof(AnyState);
 
         private int transitionDepth = 0; // 用于记录深度
         private const int MAX_DEPTH = 12; // 同一帧最大连续切换次数 防止死循环
@@ -1867,36 +1867,6 @@ namespace DX.Core.ReactiveStateMachine
             return this;
         }
 
-        /// <summary>为强类型共享变量统一注入初始值。（在初始化状态机之前调用，已加入路由时会覆盖路由器的值）</summary>
-        [Obsolete("请直接使用 machine.Variables.Get<TVar, TValue>().SetBaseValueAndReset(..., notify: false)")]
-        public StateMachine<TStateNode> InitSharedVar<TVar, TValue>(TValue baseValue) where TVar : SharedVar<TValue>, new()
-        {
-            if (IsDisposed)
-            {
-                if (DebugMode) throw new ObjectDisposedException($"{MachineId} 状态机已销毁");
-                return this;
-            }
-            if (IsRunning && DebugMode == false)
-            {
-                _debug.LogWarn("运行时禁止初始化 SharedVar 初始值。");
-                return this;
-            }
-
-            Type exactType = typeof(TVar);
-            // 直接强转公开接口 ISharedVar<TValue>，不再依赖任何内部泛型接口
-            var localVar = (ISharedVar<TValue>)VariableManager.GetOrAddLocalSharedVarBoxed(exactType);
-            localVar.SetBaseValueAndReset(baseValue, notify: false);
-
-            if (_parentMachine != null)
-            {
-                _debug.LogVerbose("InitSharedVar 在初始化前已经加入父级，初始化本地的同时执行推送，确保数据一致", LogColor.Grey, true);
-                var globalVar = (ISharedVar<TValue>)_parentMachine.GetOrAddSharedVarBoxed(exactType);
-                globalVar.SetBaseValueAndReset(baseValue, notify: false);
-            }
-
-            return this;
-        }
-
         //!--- [状态机路由配置] ---
         // --- Router 相关数据 ---
         private IRoutableMachine _parentMachine;
@@ -2122,36 +2092,12 @@ namespace DX.Core.ReactiveStateMachine
             => VariableManager.GetOrAddSharedVarBoxed(exactType);
 
         /// <summary>
-        /// 供宿主调用：绑定共享变量的引用。
-        /// 立即回调注入当前引用，并在状态机加入/离开 Router (触发大盘重绑) 时自动更新宿主的引用。
-        /// 宿主与状态机同生命周期，无需注销。
-        /// </summary>
-        [Obsolete("建议改用 machine.Variables.BindReference<TVar>(binder)")]
-        public StateMachine<TStateNode> BindSharedVarReference<TVar>(Action<TVar> binder) where TVar : class, ISharedVar
-        {
-            if (IsDisposed) return this;
-            VariableManager.BindReference(binder);
-            return this;
-        }
-        [Obsolete("建议改用 machine.Variables.Get<TVar, TValue>()")]
-        public IReadOnlySharedVar<TValue> GetReadOnlySharedVar<TVar, TValue>() where TVar : SharedVar<TValue>
-            => VariableManager.Get<TVar, TValue>();
-
-        /// <summary>
         /// 直接获取当前大盘底层的共享变量实例。
         /// 警告：持有此实例并在其上调用 .Subscribe() 在状态机加入/脱离 Router 时会导致断流失效，应改用 machine.Variables.Get
         /// </summary>
         [Obsolete("建议改用 machine.Variables.GetRaw<TVar>()")]
         public TVar GetRawSharedVariable<TVar>() where TVar : class, ISharedVar
             => VariableManager.GetRaw<TVar>();
-
-        [Obsolete("建议改用 machine.Variables.Set<TVar, TValue>(value, notify)")]
-        public void SetSharedValue<TVar, TValue>(TValue value) where TVar : SharedVar<TValue>
-            => VariableManager.Set<TVar, TValue>(value);
-
-        [Obsolete("建议改用 machine.Variables.Read<TVar, TValue>()")]
-        public TValue ReadSharedValue<TVar, TValue>() where TVar : SharedVar<TValue>
-                    => VariableManager.Read<TVar, TValue>();
 
         //!--- [反射自动注册] ---
         IStateMachineConfigurator<TStateNode> IStateMachineConfigurator<TStateNode>.AutoRegisterNestedStates(object owner, Type declaringType) => AutoRegisterNestedStates(owner, declaringType);
@@ -3923,7 +3869,7 @@ namespace DX.Core.ReactiveStateMachine
         IDisposable IContextRegistry.RegisterContext<T>(T context, CancellationToken ct) where T : class
         {
             RegisterContext(context, ct);
-            return new StateActionDisposable(() => UnregisterContext<T>());
+            return new ActionDisposable(() => UnregisterContext<T>());
         }
 
         /// <summary>注册一个上下文组件或数据模型。(已存在时会进行覆盖并注销token)</summary>
@@ -5170,39 +5116,7 @@ namespace DX.Core.ReactiveStateMachine
             Rule.OnTransitionCallbackWithPayload += (obj) => callback.Invoke((TEvent)obj);
             return this;
         }
-        /// <summary>
-        /// 响应式过滤：仅当事件携带的数据发生变化时，才允许通过此规则进行状态切换评估。
-        /// 适用于 Update 中频繁 Send 相同数据的场景，防抖拦截。
-        /// </summary>
-        public EventTransitionBuilder<TStateNode, TEvent> DistinctUntilChanged()
-        {
-            TEvent lastValue = default;
-            bool hasValue = false;
 
-            Func<TEvent, bool> distinctFilter = (currentValue) =>
-            {
-                // 使用 ZeroGcEqualityComparer 进行无 GC 比较
-                if (!hasValue || !ZeroGcEqualityComparer<TEvent>.EqualsFunc(currentValue, lastValue))
-                {
-                    lastValue = currentValue;
-                    hasValue = true;
-                    return true; // 数据不同，放行
-                }
-                return false; // 数据相同，拦截
-            };
-
-            // 将过滤逻辑叠加到现有的 PayloadCondition 中
-            if (Rule.PayloadCondition is Func<TEvent, bool> existingCond)
-            {
-                Rule.PayloadCondition = (Func<TEvent, bool>)((val) => existingCond(val) && distinctFilter(val));
-            }
-            else
-            {
-                Rule.PayloadCondition = distinctFilter;
-            }
-
-            return this;
-        }
         /// <summary>
         /// 事件节流阀：该规则在指定秒数内只响应并放行第一次
         /// 备注: 与 WithProbability 等搭配使用需注意顺序。Throttle(1f)->WithProbability 为1秒判定一次。反过来则持续判定然后等1秒执行
@@ -6207,10 +6121,10 @@ namespace DX.Core.ReactiveStateMachine
         // =========================================================================
         // 对外门面 API (IVariableRegistry)
         // =========================================================================
-        public ISharedVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>
+        public IReactiveVar<TValue> Get<TVar, TValue>() where TVar : SharedVar<TValue>
             => GetOrCreateLiveVar<TVar, TValue>();
 
-        IReadOnlySharedVar<TValue> IReadOnlyVariableRegistry.Get<TVar, TValue>()
+        IReadOnlyReactiveVar<TValue> IReadOnlyVariableRegistry.Get<TVar, TValue>()
             => GetOrCreateLiveVar<TVar, TValue>();
 
         public TVar GetRaw<TVar>() where TVar : class, ISharedVar
@@ -6231,12 +6145,6 @@ namespace DX.Core.ReactiveStateMachine
         {
             var sv = GetRawSharedVariable<TVar>();
             return sv != null ? ((SharedVar<TValue>)sv).Value : default;
-        }
-
-        public TValue ReadBase<TVar, TValue>() where TVar : SharedVar<TValue>
-        {
-            var sv = GetRawSharedVariable<TVar>();
-            return sv != null ? ((SharedVar<TValue>)sv).BaseValue : default;
         }
 
         public void Set<TVar, TValue>(TValue value) where TVar : SharedVar<TValue>
@@ -6282,48 +6190,6 @@ namespace DX.Core.ReactiveStateMachine
     public interface ISharedVar { }
 
     /// <summary>
-    /// 强类型共享变量的读写接口（兼容单实例与 Live 动态代理）
-    /// </summary>
-    public interface ISharedVar<T> : IReadOnlySharedVar<T>
-    {
-        bool IsDisposed { get; }
-        /// <summary>当前值（支持读写）</summary>
-        new T Value { get; set; }
-        /// <summary>修改值并强制广播通知</summary>
-        void SetValueAndForceNotify(T value);
-        /// <summary>修改值且不触发广播通知</summary>
-        void SetValueWithoutNotify(T value);
-        /// <summary>设置基准参照值（默认不通知）</summary>
-        void SetBaseValue(T baseValue, bool notify = false);
-        /// <summary>设定基准参照值并同步到当前值（默认通知）</summary>
-        void SetBaseValueAndReset(T baseValue, bool notify = true);
-        /// <summary>将当前值重置回初始基准值</summary>
-        void ResetToBaseValue(bool notify = true);
-        /// <summary>
-        /// 将当前值重置为 C# 类型默认值 default(T) (数值为0, 引用类型为null)
-        /// 备注: 不会改变 BaseValue 基准值
-        /// </summary>
-        void ResetToDefault(bool notify = true);
-        /// <summary>在不改变当前值的情况下，强制向总线和监听者重新广播通知一次</summary>
-        void ForceNotify();
-    }
-
-    /// <summary>
-    /// 强类型共享变量的只读视图接口，仅提供读取与订阅能力
-    /// </summary>
-    public interface IReadOnlySharedVar<out T>
-    {
-        /// <summary>当前值（只读）</summary>
-        T Value { get; }
-
-        /// <summary>基准初始值</summary>
-        T BaseValue { get; }
-
-        /// <summary> 订阅最新值 </summary>
-        IDisposable Subscribe(Action<T> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default);
-    }
-
-    /// <summary>
     /// 共享变量宿主发布接口（用于替代 Action<object> 委托，实现零委托分配与双派发）
     /// </summary>
     internal interface ISharedVarPublisher
@@ -6345,160 +6211,13 @@ namespace DX.Core.ReactiveStateMachine
         /// <summary>底层 0-GC 实例间直接自拷贝</summary>
         void CopyFrom(ISharedVarInternal source);
 
-        void ResetToBaseValue(bool notify = true);
+        void ResetToDefault(bool notify = true);
     }
 
     // 接收者接口 (FSM 或 Router)
     internal interface ISharedVariableRegistry
     {
         internal object GetOrAddSharedVarBoxed(Type exactType);
-    }
-
-    /// <summary>
-    /// 通用响应式变量基类，支持基准值 (BaseValue) 锁定与一键重置，支持订阅与操作符扩展。
-    /// </summary>
-    public class ReactiveVar<T> : ISharedVar<T>, IDisposable
-    {
-        protected T _baseValue;
-        protected T _value;
-        protected bool _isDisposed;
-
-        private Action<T> _onValueChangedListener;
-        private List<CancellationTokenRegistration> _tokenRegistrations;
-
-        /// <summary>值发生改变时的本地回调 (旧值, 新值)</summary>
-        [Obsolete("请改用 .Subscribe() 进行更安全的订阅")]
-        public event Action<T, T> OnValueChanged;
-
-        public bool IsDisposed => _isDisposed;
-        public T BaseValue => _baseValue;
-
-        public T Value
-        {
-            get => _isDisposed ? default : _value;
-            set
-            {
-                if (_isDisposed) return;
-                if (!ZeroGcEqualityComparer<T>.EqualsFunc(_value, value))
-                {
-                    var old = _value;
-                    _value = value;
-                    NotifyValueChanged(old, _value);
-                }
-            }
-        }
-
-        /// <summary>无参构造：初始值均为 default(T)</summary>
-        public ReactiveVar() { }
-
-        /// <summary>带初始值的构造：立即锁定初始基准值并同步当前值</summary>
-        public ReactiveVar(T baseValue)
-        {
-            _baseValue = baseValue;
-            _value = baseValue;
-        }
-
-        protected virtual void NotifyValueChanged(T oldValue, T newValue)
-        {
-            OnValueChanged?.Invoke(oldValue, newValue);
-            _onValueChangedListener?.Invoke(newValue);
-        }
-
-        public IDisposable Subscribe(Action<T> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null || _isDisposed || ct.IsCancellationRequested)
-                return new StateActionDisposable(null);
-
-            _onValueChangedListener += onValueChanged;
-
-            CancellationTokenRegistration reg = default;
-            bool hasToken = ct.CanBeCanceled;
-
-            if (hasToken)
-            {
-                reg = ct.Register(() => _onValueChangedListener -= onValueChanged);
-                _tokenRegistrations ??= new List<CancellationTokenRegistration>();
-                _tokenRegistrations.Add(reg);
-            }
-
-            if (notifyImmediately) onValueChanged.Invoke(_value);
-
-            return new StateActionDisposable(() =>
-            {
-                if (hasToken)
-                {
-                    reg.Dispose();
-                    _tokenRegistrations?.Remove(reg);
-                }
-                _onValueChangedListener -= onValueChanged;
-            });
-        }
-        public void SetValueAndForceNotify(T value)
-        {
-            if (_isDisposed) return;
-            var old = _value;
-            _value = value;
-            NotifyValueChanged(old, _value);
-        }
-        public void SetValueWithoutNotify(T value)
-        {
-            if (_isDisposed) return;
-            _value = value;
-        }
-
-        public void SetBaseValue(T baseValue, bool notify = false)
-        {
-            if (_isDisposed) return;
-            _baseValue = baseValue;
-            if (notify) ForceNotify();
-        }
-
-        public void SetBaseValueAndReset(T baseValue, bool notify = true)
-        {
-            if (_isDisposed) return;
-            var old = _value;
-            _baseValue = baseValue;
-            _value = baseValue;
-            if (notify) NotifyValueChanged(old, _value);
-        }
-
-        public void ResetToBaseValue(bool notify = true)
-        {
-            if (_isDisposed) return;
-            if (notify) Value = _baseValue;
-            else _value = _baseValue;
-        }
-
-        public void ResetToDefault(bool notify = true)
-        {
-            if (_isDisposed) return;
-            if (notify) Value = default;
-            else _value = default;
-        }
-
-        public void ForceNotify()
-        {
-            if (_isDisposed) return;
-            NotifyValueChanged(_value, _value);
-        }
-
-        public void Dispose()
-        {
-            if (_isDisposed) return;
-            if (_tokenRegistrations != null)
-            {
-                for (int i = 0; i < _tokenRegistrations.Count; i++) _tokenRegistrations[i].Dispose();
-                _tokenRegistrations.Clear();
-                _tokenRegistrations = null;
-            }
-            _onValueChangedListener = null;
-            OnValueChanged = null;
-            _value = default;
-            _baseValue = default;
-            _isDisposed = true;
-        }
-
-        public static implicit operator T(ReactiveVar<T> rv) => rv != null ? rv.Value : default;
     }
 
     /// <summary>
@@ -6537,7 +6256,6 @@ namespace DX.Core.ReactiveStateMachine
             if (_isDisposed) return;
             if (source is SharedVar<T> typedSource)
             {
-                this._baseValue = typedSource._baseValue;
                 this._value = typedSource._value;
             }
         }
@@ -6917,7 +6635,7 @@ namespace DX.Core.ReactiveStateMachine
     #region Event
     public class StateEventManager : IStateEventSubscriber
     {
-        private static Type AnyStateKey => AssemblyTypeHolder.AnyStateKey;
+        private static Type AnyStateKey => typeof(AnyState);
 
         // =========================================================================
         // 1. 合并存储单元：一个结构体同时包含委托和它的生命周期令牌
@@ -7070,8 +6788,8 @@ namespace DX.Core.ReactiveStateMachine
             CancellationToken ct,
             Action unsubscribeAction)
         {
-            if (handler == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
+            if (handler == null) return new ActionDisposable(null);
+            if (ct.IsCancellationRequested) return new ActionDisposable(null);
 
             CancellationTokenRegistration reg = default;
             if (ct.CanBeCanceled)
@@ -7080,7 +6798,7 @@ namespace DX.Core.ReactiveStateMachine
             }
 
             list.Add(new LifecycleSubscription(handler, reg));
-            return new StateActionDisposable(unsubscribeAction);
+            return new ActionDisposable(unsubscribeAction);
         }
 
         private void UnsubscribeLifecycleInternal(List<LifecycleSubscription> list, Action handler)
@@ -7101,7 +6819,7 @@ namespace DX.Core.ReactiveStateMachine
         public IDisposable SubscribeEnter<TState>(Action<TState> onEnter, CancellationToken ct = default) where TState : class, IStateNode
         {
             GetOrCreateEnterPublisher<TState>().Add(onEnter, ct);
-            return new StateActionDisposable(() => UnsubscribeEnter(onEnter));
+            return new ActionDisposable(() => UnsubscribeEnter(onEnter));
         }
 
         public void UnsubscribeEnter<TState>(Action<TState> onEnter) where TState : class, IStateNode
@@ -7113,7 +6831,7 @@ namespace DX.Core.ReactiveStateMachine
         public IDisposable SubscribeExit<TState>(Action<TState> onExit, CancellationToken ct = default) where TState : class, IStateNode
         {
             GetOrCreateExitPublisher<TState>().Add(onExit, ct);
-            return new StateActionDisposable(() => UnsubscribeExit(onExit));
+            return new ActionDisposable(() => UnsubscribeExit(onExit));
         }
 
         public void UnsubscribeExit<TState>(Action<TState> onExit) where TState : class, IStateNode
@@ -7146,10 +6864,10 @@ namespace DX.Core.ReactiveStateMachine
 
         private IDisposable SubscribeEventInternal<TEvent>(Type stateType, Action<TEvent> handler, CancellationToken ct)
         {
-            if (handler == null) return new StateActionDisposable(null);
+            if (handler == null) return new ActionDisposable(null);
 
             // 如果 Token 已取消，直接退出
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
+            if (ct.IsCancellationRequested) return new ActionDisposable(null);
 
             var key = (stateType, typeof(TEvent));
             if (!_customEventHandlers.TryGetValue(key, out var list))
@@ -7168,7 +6886,7 @@ namespace DX.Core.ReactiveStateMachine
             // 存入合并后的结构体
             list.Add(new EventSubscription(handler, reg));
 
-            return new StateActionDisposable(() => UnsubscribeEventInternal<TEvent>(stateType, handler));
+            return new ActionDisposable(() => UnsubscribeEventInternal<TEvent>(stateType, handler));
         }
 
         private void UnsubscribeEventInternal<TEvent>(Type stateType, Action<TEvent> handler)
@@ -7431,7 +7149,7 @@ namespace DX.Core.ReactiveStateMachine
     /// </summary>
     internal class StateReflectionProcessor<TStateNode> where TStateNode : class, IStateNode
     {
-        private string StopNamespace => AssemblyTypeHolder.StopNamespace;
+        private string StopNamespace => typeof(IStateNode).Namespace;
 
         private StateMachineLogger<StateMachineLogLevel> _debug;
         // 缓存：状态类型 -> 该状态下挂载了 [AutoReset] 标记的字段
@@ -7730,7 +7448,7 @@ namespace DX.Core.ReactiveStateMachine
                         if (data.IsSharedVar)
                         {
                             var sharedVarInstance = data.Field.GetValue(state) as ISharedVarInternal;
-                            sharedVarInstance?.ResetToBaseValue(notify: true);
+                            sharedVarInstance?.ResetToDefault(notify: true);
                         }
                         else
                         {
@@ -7827,8 +7545,7 @@ namespace DX.Core.ReactiveStateMachine
                         // 执行重置
                         if (fieldData.IsSharedVar)
                         {
-                            var sv = fieldData.Field.GetValue(state) as ISharedVarInternal;
-                            sv?.ResetToBaseValue(notify: true);
+                            continue;
                         }
                         else
                         {
@@ -7867,8 +7584,7 @@ namespace DX.Core.ReactiveStateMachine
 
                             if (fieldData.IsSharedVar)
                             {
-                                var sv = fieldData.Field.GetValue(state) as ISharedVarInternal;
-                                sv?.ResetToBaseValue(notify: true);
+                                continue;
                             }
                             else
                             {
@@ -8523,353 +8239,11 @@ namespace DX.Core.ReactiveStateMachine
     //!============== Extensions ==================
     #region Extensions
 
-    //# Select 操作符扩展
-
-    public static class SharedVarSelectExtensions
-    {
-        /// <summary>
-        /// 对共享变量进行数据投影映射 (如 hp => $"HP: {hp}" 或 hp => hp > 0)
-        /// </summary>
-        /// <typeparam name="TSource">源类型</typeparam>
-        /// <typeparam name="TResult">目标映射类型</typeparam>
-        /// <param name="source">源变量</param>
-        /// <param name="selector">映射转换委托</param>
-        /// <param name="distinctUntilChanged">映射后的值若未发生改变是否拦截通知 (默认 true 优化 UI 性能)</param>
-        public static IReadOnlySharedVar<TResult> Select<TSource, TResult>(
-            this IReadOnlySharedVar<TSource> source,
-            Func<TSource, TResult> selector,
-            bool distinctUntilChanged = true)
-        {
-            return new SelectReadOnlySharedVar<TSource, TResult>(source, selector, distinctUntilChanged);
-        }
-
-        /// <summary>
-        /// 对共享变量进行数据投影映射 (双参数版：支持同时传入当前值与基准初始值)
-        /// 例: hp.Select((cur, init) => (float)cur / init) 计算百分比
-        /// </summary>
-        public static IReadOnlySharedVar<TResult> Select<TSource, TResult>(
-            this IReadOnlySharedVar<TSource> source,
-            Func<TSource, TSource, TResult> selector,
-            bool distinctUntilChanged = true)
-        {
-            return new SelectDualReadOnlySharedVar<TSource, TResult>(source, selector, distinctUntilChanged);
-        }
-    }
-
-    /// <summary>
-    /// 响应式数据映射只读视图 (Select Projection)
-    /// </summary>
-    public sealed class SelectReadOnlySharedVar<TSource, TResult> : IReadOnlySharedVar<TResult>
-    {
-        private readonly IReadOnlySharedVar<TSource> _source;
-        private readonly Func<TSource, TResult> _selector;
-        private readonly bool _distinctUntilChanged;
-
-        public SelectReadOnlySharedVar(IReadOnlySharedVar<TSource> source, Func<TSource, TResult> selector, bool distinctUntilChanged = true)
-        {
-            _source = source ?? throw new ArgumentNullException(nameof(source));
-            _selector = selector ?? throw new ArgumentNullException(nameof(selector));
-            _distinctUntilChanged = distinctUntilChanged;
-        }
-
-        /// <summary>当前计算后的映射值</summary>
-        public TResult Value => _selector(_source.Value);
-
-        /// <summary>计算后的基准初始映射值</summary>
-        public TResult BaseValue => _selector(_source.BaseValue);
-
-        /// <summary>
-        /// 订阅映射后的数据变更
-        /// </summary>
-        public IDisposable Subscribe(Action<TResult> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
-
-            TResult lastValue = default;
-            bool hasValue = false;
-
-            // 包装源数据回调
-            Action<TSource> sourceObserver = (sourceVal) =>
-            {
-                TResult mappedVal = _selector(sourceVal);
-
-                // 开启防抖时，若映射结果未发生改变则不通知 UI
-                if (_distinctUntilChanged)
-                {
-                    if (hasValue && ZeroGcEqualityComparer<TResult>.EqualsFunc(lastValue, mappedVal))
-                    {
-                        return;
-                    }
-                    lastValue = mappedVal;
-                    hasValue = true;
-                }
-
-                onValueChanged.Invoke(mappedVal);
-            };
-
-            // 立即同步当前值
-            if (notifyImmediately)
-            {
-                TResult initialMapped = Value;
-                lastValue = initialMapped;
-                hasValue = true;
-                onValueChanged.Invoke(initialMapped);
-            }
-
-            // 将监听挂载到底层源 SharedVar 上（不重复触发 notifyImmediately，由上面接管）
-            return _source.Subscribe(sourceObserver, notifyImmediately: false, ct: ct);
-        }
-    }
-
-    /// <summary>
-    /// 响应式数据映射只读视图 (双参数 Select: value + baseValue)
-    /// </summary>
-    public sealed class SelectDualReadOnlySharedVar<TSource, TResult> : IReadOnlySharedVar<TResult>
-    {
-        private readonly IReadOnlySharedVar<TSource> _source;
-        private readonly Func<TSource, TSource, TResult> _selector;
-        private readonly bool _distinctUntilChanged;
-
-        public SelectDualReadOnlySharedVar(
-            IReadOnlySharedVar<TSource> source,
-            Func<TSource, TSource, TResult> selector,
-            bool distinctUntilChanged = true)
-        {
-            _source = source ?? throw new ArgumentNullException(nameof(source));
-            _selector = selector ?? throw new ArgumentNullException(nameof(selector));
-            _distinctUntilChanged = distinctUntilChanged;
-        }
-
-        /// <summary>当前计算后的映射值</summary>
-        public TResult Value => _selector(_source.Value, _source.BaseValue);
-
-        /// <summary>初始状态计算后的基准映射值 (此时 value 即 baseValue)</summary>
-        public TResult BaseValue => _selector(_source.BaseValue, _source.BaseValue);
-
-        public IDisposable Subscribe(Action<TResult> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
-
-            TResult lastValue = default;
-            bool hasValue = false;
-
-            Action<TSource> sourceObserver = (sourceVal) =>
-            {
-                // 计算时读取当前底层的 baseValue
-                TResult mappedVal = _selector(sourceVal, _source.BaseValue);
-
-                if (_distinctUntilChanged)
-                {
-                    if (hasValue && ZeroGcEqualityComparer<TResult>.EqualsFunc(lastValue, mappedVal))
-                    {
-                        return;
-                    }
-                    lastValue = mappedVal;
-                    hasValue = true;
-                }
-
-                onValueChanged.Invoke(mappedVal);
-            };
-
-            if (notifyImmediately)
-            {
-                TResult initialMapped = Value;
-                lastValue = initialMapped;
-                hasValue = true;
-                onValueChanged.Invoke(initialMapped);
-            }
-
-            return _source.Subscribe(sourceObserver, notifyImmediately: false, ct: ct);
-        }
-    }
-
-    //# Where 操作符扩展
-    public static class SharedVarWhereExtensions
-    {
-        /// <summary>
-        /// 对共享变量进行条件过滤（仅当满足 predicate 条件时才下发广播与通知）
-        /// </summary>
-        /// <typeparam name="T">数据类型</typeparam>
-        /// <param name="source">源变量</param>
-        /// <param name="predicate">过滤条件谓词 (返回 true 时放行通知)</param>
-        public static IReadOnlySharedVar<T> Where<T>(
-            this IReadOnlySharedVar<T> source,
-            Func<T, bool> predicate)
-        {
-            return new WhereReadOnlySharedVar<T>(source, predicate);
-        }
-
-        /// <summary>
-        /// 对共享变量进行条件过滤 (双参数版：支持同时基于当前值与基准初始值进行判断)
-        /// 例: hp.Where((cur, init) => cur > init * 0.3f) 
-        /// </summary>
-        public static IReadOnlySharedVar<T> Where<T>(
-            this IReadOnlySharedVar<T> source,
-            Func<T, T, bool> predicate)
-        {
-            return new WhereDualReadOnlySharedVar<T>(source, predicate);
-        }
-    }
-    /// <summary>
-    /// 响应式数据条件过滤只读视图 (Where Filter)
-    /// </summary>
-    public sealed class WhereReadOnlySharedVar<T> : IReadOnlySharedVar<T>
-    {
-        private readonly IReadOnlySharedVar<T> _source;
-        private readonly Func<T, bool> _predicate;
-        private T _lastValidValue;
-        private bool _hasValidValue;
-
-        public WhereReadOnlySharedVar(IReadOnlySharedVar<T> source, Func<T, bool> predicate)
-        {
-            _source = source ?? throw new ArgumentNullException(nameof(source));
-            _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
-
-            // 初始化时检查源当前值是否符合条件
-            T initial = _source.Value;
-            if (_predicate(initial))
-            {
-                _lastValidValue = initial;
-                _hasValidValue = true;
-            }
-        }
-
-        /// <summary>
-        /// 当前最新满足条件的有效值。
-        /// 若源数据最新值符合条件则返回最新值；若不符合，则保留上一次满足条件的值。
-        /// </summary>
-        public T Value
-        {
-            get
-            {
-                T current = _source.Value;
-                if (_predicate(current))
-                {
-                    _lastValidValue = current;
-                    _hasValidValue = true;
-                    return current;
-                }
-                return _hasValidValue ? _lastValidValue : default;
-            }
-        }
-
-        /// <summary>底层数据源的基准初始值</summary>
-        public T BaseValue => _source.BaseValue;
-
-        /// <summary>
-        /// 订阅数据变更（仅当数据满足过滤条件时才会收到通知）
-        /// </summary>
-        public IDisposable Subscribe(Action<T> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
-
-            // 包装观察者回调：仅在符合条件时下发事件并更新最后有效值
-            Action<T> sourceObserver = (val) =>
-            {
-                if (_predicate(val))
-                {
-                    _lastValidValue = val;
-                    _hasValidValue = true;
-                    onValueChanged.Invoke(val);
-                }
-            };
-
-            // 立即同步当前值（仅当当前值符合条件时触发）
-            if (notifyImmediately)
-            {
-                T current = _source.Value;
-                if (_predicate(current))
-                {
-                    _lastValidValue = current;
-                    _hasValidValue = true;
-                    onValueChanged.Invoke(current);
-                }
-            }
-
-            // 挂载到底层数据源
-            return _source.Subscribe(sourceObserver, notifyImmediately: false, ct: ct);
-        }
-    }
-
-    /// <summary>
-    /// 响应式数据条件过滤只读视图 (双参数 Where: value + baseValue)
-    /// </summary>
-    public sealed class WhereDualReadOnlySharedVar<T> : IReadOnlySharedVar<T>
-    {
-        private readonly IReadOnlySharedVar<T> _source;
-        private readonly Func<T, T, bool> _predicate;
-        private T _lastValidValue;
-        private bool _hasValidValue;
-
-        public WhereDualReadOnlySharedVar(IReadOnlySharedVar<T> source, Func<T, T, bool> predicate)
-        {
-            _source = source ?? throw new ArgumentNullException(nameof(source));
-            _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
-
-            // 初始化时检查
-            T initialVal = _source.Value;
-            if (_predicate(initialVal, _source.BaseValue))
-            {
-                _lastValidValue = initialVal;
-                _hasValidValue = true;
-            }
-        }
-
-        public T Value
-        {
-            get
-            {
-                T current = _source.Value;
-                if (_predicate(current, _source.BaseValue))
-                {
-                    _lastValidValue = current;
-                    _hasValidValue = true;
-                    return current;
-                }
-                return _hasValidValue ? _lastValidValue : default;
-            }
-        }
-
-        public T BaseValue => _source.BaseValue;
-
-        public IDisposable Subscribe(Action<T> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
-
-            Action<T> sourceObserver = (val) =>
-            {
-                if (_predicate(val, _source.BaseValue))
-                {
-                    _lastValidValue = val;
-                    _hasValidValue = true;
-                    onValueChanged.Invoke(val);
-                }
-            };
-
-            if (notifyImmediately)
-            {
-                T current = _source.Value;
-                if (_predicate(current, _source.BaseValue))
-                {
-                    _lastValidValue = current;
-                    _hasValidValue = true;
-                    onValueChanged.Invoke(current);
-                }
-            }
-
-            return _source.Subscribe(sourceObserver, notifyImmediately: false, ct: ct);
-        }
-    }
-
     // # 代理 IReadOnlySharedVar
     /// <summary>
     /// 绑定状态机事件总线的动态只读代理（直通版本，Router 动态重绑免疫）
     /// </summary>
-    public sealed class LiveReadOnlySharedVar<TVar, TValue> : IReadOnlySharedVar<TValue>
+    public sealed class LiveReadOnlySharedVar<TVar, TValue> : IReadOnlyReactiveVar<TValue>
         where TVar : SharedVar<TValue>
     {
         private readonly IReadOnlyStateMachine _machine;
@@ -8882,14 +8256,11 @@ namespace DX.Core.ReactiveStateMachine
         /// <summary>实时从当前大盘（本地或 Router）提取最新值</summary>
         public TValue Value => _machine.Variables.Read<TVar, TValue>();
 
-        /// <summary>实时从当前大盘（本地或 Router）提取基准参考值</summary>
-        public TValue BaseValue => _machine.Variables.ReadBase<TVar, TValue>();
-
         /// <summary>通过状态机总线订阅，完全免疫 Router 重绑失效</summary>
         public IDisposable Subscribe(Action<TValue> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
         {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
+            if (onValueChanged == null) return new ActionDisposable(null);
+            if (ct.IsCancellationRequested) return new ActionDisposable(null);
 
             // 订阅总线派发并解包 Value
             Action<TVar> handler = sharedVar => onValueChanged.Invoke(sharedVar.Value);
@@ -8910,7 +8281,7 @@ namespace DX.Core.ReactiveStateMachine
     /// 绑定状态机事件总线的【动态读写代理】（Router 动态重绑绝对免疫）
     /// 无论状态机何时 JoinParent / LeaveParent，读写永远指向最新大盘
     /// </summary>
-    public sealed class LiveSharedVar<TVar, TValue> : ISharedVar<TValue>
+    public sealed class LiveSharedVar<TVar, TValue> : IReactiveVar<TValue>
         where TVar : SharedVar<TValue>
     {
         private readonly IExternalStateMachine _machine;
@@ -8927,10 +8298,6 @@ namespace DX.Core.ReactiveStateMachine
             set => _machine.Variables.Set<TVar, TValue>(value);
         }
 
-        // public TValue baseValue => _machine.Variables.GetRaw<TVar>() is { } raw ? raw.BaseValue : default;
-        public TValue BaseValue
-            => _machine.Variables.ReadBase<TVar, TValue>();
-
         public bool IsDisposed => _machine.IsDisposed;
 
         public void SetValueAndForceNotify(TValue value)
@@ -8939,17 +8306,8 @@ namespace DX.Core.ReactiveStateMachine
         public void SetValueWithoutNotify(TValue value)
             => _machine.Variables.GetRaw<TVar>().SetValueWithoutNotify(value);
 
-        public void ResetToBaseValue(bool notify = true)
-            => _machine.Variables.GetRaw<TVar>().ResetToBaseValue(notify);
-
         public void ResetToDefault(bool notify = true)
             => _machine.Variables.GetRaw<TVar>().ResetToDefault(notify);
-
-        public void SetBaseValue(TValue baseValue, bool notify = false)
-            => _machine.Variables.GetRaw<TVar>().SetBaseValue(baseValue, notify);
-
-        public void SetBaseValueAndReset(TValue baseValue, bool notify = true)
-            => _machine.Variables.GetRaw<TVar>().SetBaseValueAndReset(baseValue, notify);
 
         public void ForceNotify()
             => _machine.Variables.GetRaw<TVar>().ForceNotify();
@@ -8957,8 +8315,8 @@ namespace DX.Core.ReactiveStateMachine
         // 订阅：利用现有的 Live 只读通道监听最新值
         public IDisposable Subscribe(Action<TValue> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
         {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
+            if (onValueChanged == null) return new ActionDisposable(null);
+            if (ct.IsCancellationRequested) return new ActionDisposable(null);
 
             // 监听状态机总线上的解包事件
             Action<TVar> handler = sharedVar => onValueChanged.Invoke(sharedVar.Value);
@@ -8975,164 +8333,13 @@ namespace DX.Core.ReactiveStateMachine
 
     }
 
-    // # 组合类扩展
-    public static class SharedVarCombineExtensions
-    {
-        /// <summary>
-        /// 将两个响应式变量组合为一个新的只读响应式变量 (CombineLatest)
-        /// 当任意一个变量的值发生变更时，重新计算并通知下游
-        /// </summary>
-        /// <typeparam name="T1">变量1的类型</typeparam>
-        /// <typeparam name="T2">变量2的类型</typeparam>
-        /// <typeparam name="TResult">组合计算后的结果类型</typeparam>
-        /// <param name="source1">源变量1</param>
-        /// <param name="source2">源变量2</param>
-        /// <param name="combiner">组合计算委托</param>
-        /// <param name="distinctUntilChanged">计算结果未发生变化时是否拦截通知（默认 true，优化 UI 性能）</param>
-        public static IReadOnlySharedVar<TResult> Combine<T1, T2, TResult>(
-            this IReadOnlySharedVar<T1> source1,
-            IReadOnlySharedVar<T2> source2,
-            Func<T1, T2, TResult> combiner,
-            bool distinctUntilChanged = true)
-        {
-            return new CombineReadOnlySharedVar<T1, T2, TResult>(source1, source2, combiner, distinctUntilChanged);
-        }
-
-        /// <summary>
-        /// 将 A 的 BaseValue 动态绑定到 B 的 Value：
-        /// 1. 立即将 B 的当前 Value 设为 A 的 BaseValue 并触发通知；
-        /// 2. 持续监听 B 的变化，当 B 发生改变时自动同步更新 A 的 BaseValue。
-        /// </summary>
-        /// <typeparam name="T">变量的值类型</typeparam>
-        /// <param name="target">被绑定的目标变量 A (例如: PlayerHp)</param>
-        /// <param name="source">数据提供源变量 B (例如: PlayerMaxHp)</param>
-        /// <param name="syncCurrentValue">绑定或B变化时，是否同时将 A 的当前 Value 也重置为新的 BaseValue（默认 false）</param>
-        /// <param name="ct">生命周期令牌（销毁时自动解绑）</param>
-        /// <returns>返回解绑器 IDisposable</returns>
-        public static IDisposable BindBaseValueFrom<T>(
-            this ISharedVar<T> target,
-            IReadOnlySharedVar<T> source,
-            bool syncCurrentValue = false,
-            CancellationToken ct = default)
-        {
-            if (target == null) throw new ArgumentNullException(nameof(target));
-            if (source == null) throw new ArgumentNullException(nameof(source));
-
-            if (ReferenceEquals(target, source))
-            {
-                throw new ArgumentException("禁止将自身作为 BaseValue 提供源绑定");
-            }
-            bool isSyncing = false;
-            // 定义同步逻辑
-            void ApplySync(T newBaseValue)
-            {
-                if (target.IsDisposed) return;
-                if (isSyncing) return;
-
-                try
-                {
-                    if (syncCurrentValue)
-                    {
-                        // 设定基准初始值，并同步将当前 Value 重置为该值（通知）
-                        target.SetBaseValueAndReset(newBaseValue, notify: true);
-                    }
-                    else
-                    {
-                        // 仅修改基准初始值，并强制广播通知一次（使得依赖 BaseValue 的 Select 能够重新计算）
-                        target.SetBaseValue(newBaseValue, notify: true);
-                    }
-                }
-                finally
-                {
-                    isSyncing = false;
-                }
-            }
-
-            // 监听 B 的最新值，notifyImmediately: true 保证在绑定瞬间立刻执行一次初始化同步
-            return source.Subscribe(ApplySync, notifyImmediately: true, ct: ct);
-        }
-    }
-
-    /// <summary>
-    /// 双变量响应式组合只读视图 (CombineLatest 模式)
-    /// </summary>
-    public sealed class CombineReadOnlySharedVar<T1, T2, TResult> : IReadOnlySharedVar<TResult>
-    {
-        private readonly IReadOnlySharedVar<T1> _source1;
-        private readonly IReadOnlySharedVar<T2> _source2;
-        private readonly Func<T1, T2, TResult> _combiner;
-        private readonly bool _distinctUntilChanged;
-
-        public CombineReadOnlySharedVar(
-            IReadOnlySharedVar<T1> source1,
-            IReadOnlySharedVar<T2> source2,
-            Func<T1, T2, TResult> combiner,
-            bool distinctUntilChanged = true)
-        {
-            _source1 = source1 ?? throw new ArgumentNullException(nameof(source1));
-            _source2 = source2 ?? throw new ArgumentNullException(nameof(source2));
-            _combiner = combiner ?? throw new ArgumentNullException(nameof(combiner));
-            _distinctUntilChanged = distinctUntilChanged;
-        }
-
-        /// <summary>当前计算后的组合值</summary>
-        public TResult Value => _combiner(_source1.Value, _source2.Value);
-
-        /// <summary>由两个变量的初始值组合而成的基准初始值</summary>
-        public TResult BaseValue => _combiner(_source1.BaseValue, _source2.BaseValue);
-
-        /// <summary>
-        /// 订阅组合后的数据变化
-        /// </summary>
-        public IDisposable Subscribe(Action<TResult> onValueChanged, bool notifyImmediately = true, CancellationToken ct = default)
-        {
-            if (onValueChanged == null) return new StateActionDisposable(null);
-            if (ct.IsCancellationRequested) return new StateActionDisposable(null);
-
-            TResult lastValue = default;
-            bool hasValue = false;
-
-            // 统一更新与派发逻辑
-            void NotifyCombined()
-            {
-                TResult currentCombined = Value;
-
-                if (_distinctUntilChanged)
-                {
-                    if (hasValue && ZeroGcEqualityComparer<TResult>.EqualsFunc(lastValue, currentCombined))
-                    {
-                        return;
-                    }
-                    lastValue = currentCombined;
-                    hasValue = true;
-                }
-
-                onValueChanged.Invoke(currentCombined);
-            }
-
-            // 监听源1变化（notifyImmediately 设为 false，由外层统一在初始化时调用一次）
-            var sub1 = _source1.Subscribe(_ => NotifyCombined(), notifyImmediately: false, ct: ct);
-            // 监听源2变化
-            var sub2 = _source2.Subscribe(_ => NotifyCombined(), notifyImmediately: false, ct: ct);
-
-            // 立即同步初始状态
-            if (notifyImmediately)
-            {
-                NotifyCombined();
-            }
-
-            // 返回复合注销器：同时退订两个源变量
-            return new StateActionDisposable(() =>
-            {
-                sub1.Dispose();
-                sub2.Dispose();
-            });
-        }
-    }
-
     #endregion
     //!============== 其他工具/缓存 ==================
     #region Other
+    /// <summary>
+    /// 全局通配状态 Key 专用类（代表 AnyState，匹配任意状态）
+    /// </summary>
+    internal sealed class AnyState { }
 
     public struct StateHistoryRecorder
     {
@@ -9148,149 +8355,6 @@ namespace DX.Core.ReactiveStateMachine
     {
         public static readonly bool IsReferenceType = !typeof(T).IsValueType;
         public static readonly bool IsSharedVar = typeof(ISharedVar).IsAssignableFrom(typeof(T));
-    }
-    /// <summary>
-    /// 全局程序集类型存储器（非泛型，供所有状态机及外部工具共享原始 Type[]）
-    /// </summary>
-    internal static class AssemblyTypeHolder
-    {
-        private static Type[] _allTypes;
-
-        internal sealed class AnyState { }
-        /// <summary>全局通配状态 Key（代表 AnyState，匹配任意状态）</summary>
-        public static readonly Type AnyStateKey = typeof(AnyState);
-        /// <summary>全局静态只读的停止命名空间 (用于优化反射性能)</summary>
-        public static readonly string StopNamespace = typeof(IStateNode).Namespace;
-        /// <summary>获取当前程序集的所有类型（全局仅分配一次）</summary>
-        public static Type[] AllTypes => _allTypes ??= LoadAllUserTypes();
-
-        private static Type[] LoadAllUserTypes()
-        {
-            var userTypes = new List<Type>(2048);
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-
-            for (int i = 0; i < assemblies.Length; i++)
-            {
-                var assembly = assemblies[i];
-
-                // 忽略动态生成的程序集
-                if (assembly.IsDynamic) continue;
-
-                string name = assembly.GetName().Name;
-
-                // 过滤系统库与引擎原生库，大幅提高启动速度
-                if (IsSystemAssembly(name)) continue;
-
-                Type[] types = null;
-                try
-                {
-                    types = assembly.GetTypes();
-                }
-                catch (ReflectionTypeLoadException ex)
-                {
-                    // IL2CPP 开启代码裁剪后，未被引用的类型可能导致 GetTypes 抛出异常
-                    // 此时必须从 ex.Types 中提取成功加载的有效类型，防止初始化闪退
-                    types = ex.Types;
-                }
-                catch
-                {
-                    // 忽略个别受限程序集的加载失败
-                    continue;
-                }
-
-                if (types != null)
-                {
-                    for (int j = 0; j < types.Length; j++)
-                    {
-                        var t = types[j];
-                        if (t != null) userTypes.Add(t);
-                    }
-                }
-            }
-
-            return userTypes.ToArray();
-        }
-
-        /// <summary>
-        /// 黑名单过滤系统程序集
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsSystemAssembly(string name)
-        {
-            return name.StartsWith("System")
-                || name.StartsWith("mscorlib")
-                || name.StartsWith("netstandard")
-                || name.StartsWith("UnityEngine")
-                || name.StartsWith("UnityEditor")
-                || name.StartsWith("Microsoft")
-                || name.StartsWith("Mono.")
-                || name.StartsWith("nunit.")
-                || name.StartsWith("UniTask");
-        }
-    }
-
-    /// <summary>
-    /// 通用方法重写检测与全局静态缓存工具
-    /// </summary>
-    internal static class MethodOverrideCache
-    {
-        // Key: (目标类型, 方法名) -> 是否被重写
-        private static readonly ConcurrentDictionary<(Type TargetType, string MethodName), bool> _cache = new();
-
-        /// <summary>
-        /// 检查 targetType 是否重写了源自泛型基类定义（如 StateBase<>）的指定方法
-        /// </summary>
-        /// <param name="targetType">当前需要检测的具体类型（如 PlayerAttackState）</param>
-        /// <param name="methodName">方法名</param>
-        /// <param name="baseGenericDefinition">开放泛型基类定义</param>
-        /// <param name="parameterTypes">方法的参数类型列表（可选，用于防止重载歧义）</param>
-        public static bool IsOverriddenFromGenericBase(
-            Type targetType,
-            string methodName,
-            Type baseGenericDefinition,
-            Type[] parameterTypes = null)
-        {
-            var key = (targetType, methodName);
-
-            // 使用带 factoryArgument 的 GetOrAdd 重载，避免闭包捕获产生委托 GC
-            return _cache.GetOrAdd(key, static (k, arg) =>
-            {
-                var (baseGeneric, paramTypes) = arg;
-                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-                MethodInfo method = paramTypes == null
-                    ? k.TargetType.GetMethod(k.MethodName, flags)
-                    : k.TargetType.GetMethod(k.MethodName, flags, null, paramTypes, null);
-
-                if (method == null) return false;
-                Type declType = method.DeclaringType;
-                if (declType == null) return false;
-
-                // 如果方法的声明类型就是底层泛型基类本身，说明未被子类重写
-                if (declType.IsGenericType && declType.GetGenericTypeDefinition() == baseGeneric)
-                {
-                    return false;
-                }
-
-                return true;
-            }, (baseGenericDefinition, parameterTypes));
-        }
-    }
-    /// <summary>可复用的释放器</summary>
-    public sealed class StateActionDisposable : IDisposable
-    {
-        private Action _onDispose;
-
-        public StateActionDisposable(Action onDispose)
-        {
-            _onDispose = onDispose;
-        }
-
-        public void Dispose()
-        {
-            _onDispose?.Invoke();
-            _onDispose = null;
-        }
     }
 
     /// <summary>
@@ -9376,6 +8440,7 @@ namespace DX.Core.ReactiveStateMachine
             _cache?.Clear();
         }
     }
+
     /// <summary>
     /// 高性能的 CrossTalk 规则评估器 (支持精确类型与接口/基类的 0GC 匹配)
     /// </summary>
@@ -9708,8 +8773,102 @@ namespace DX.Core.ReactiveStateMachine
             _ => "white"
         };
     }
-    //!--- [ZeroGC] ---
 
+    #endregion
+}
+
+namespace DX.Core.Utility
+{
+    /// <summary>可复用的释放器</summary>
+    public sealed class ActionDisposable : IDisposable
+    {
+        private Action _onDispose;
+
+        public ActionDisposable(Action onDispose)
+        {
+            _onDispose = onDispose;
+        }
+
+        public void Dispose()
+        {
+            _onDispose?.Invoke();
+            _onDispose = null;
+        }
+    }
+
+    /// <summary>
+    /// 全局程序集类型存储器（非泛型，供所有状态机及外部工具共享原始 Type[]）
+    /// </summary>
+    internal static class AssemblyTypeHolder
+    {
+        private static Type[] _allTypes;
+        public static Type[] AllTypes => _allTypes ??= LoadAllUserTypes();
+
+        private static Type[] LoadAllUserTypes()
+        {
+            var userTypes = new List<Type>(2048);
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                var assembly = assemblies[i];
+
+                // 忽略动态生成的程序集
+                if (assembly.IsDynamic) continue;
+
+                string name = assembly.GetName().Name;
+
+                // 过滤系统库与引擎原生库，大幅提高启动速度
+                if (IsSystemAssembly(name)) continue;
+
+                Type[] types = null;
+                try
+                {
+                    types = assembly.GetTypes();
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    // IL2CPP 开启代码裁剪后，未被引用的类型可能导致 GetTypes 抛出异常
+                    // 此时必须从 ex.Types 中提取成功加载的有效类型，防止初始化闪退
+                    types = ex.Types;
+                }
+                catch
+                {
+                    // 忽略个别受限程序集的加载失败
+                    continue;
+                }
+
+                if (types != null)
+                {
+                    for (int j = 0; j < types.Length; j++)
+                    {
+                        var t = types[j];
+                        if (t != null) userTypes.Add(t);
+                    }
+                }
+            }
+
+            return userTypes.ToArray();
+        }
+
+        /// <summary>
+        /// 黑名单过滤系统程序集
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsSystemAssembly(string name)
+        {
+            return name.StartsWith("System")
+                || name.StartsWith("mscorlib")
+                || name.StartsWith("netstandard")
+                || name.StartsWith("UnityEngine")
+                || name.StartsWith("UnityEditor")
+                || name.StartsWith("Microsoft")
+                || name.StartsWith("Mono.")
+                || name.StartsWith("nunit.")
+                || name.StartsWith("UniTask");
+        }
+    }
+    //!--- [ZeroGC] ---
     /// <summary>
     /// 0 GC 强类型泛型比较器
     /// 自动处理未实现 IEquatable 的自定义 Struct，避免 ValueType.Equals 引起的装箱
@@ -9806,5 +8965,52 @@ namespace DX.Core.ReactiveStateMachine
         }
     }
 
-    #endregion
+    /// <summary>
+    /// 通用方法重写检测与全局静态缓存工具
+    /// </summary>
+    internal static class MethodOverrideCache
+    {
+        // Key: (目标类型, 方法名) -> 是否被重写
+        private static readonly ConcurrentDictionary<(Type TargetType, string MethodName), bool> _cache = new();
+
+        /// <summary>
+        /// 检查 targetType 是否重写了源自泛型基类定义（如 StateBase<>）的指定方法
+        /// </summary>
+        /// <param name="targetType">当前需要检测的具体类型（如 PlayerAttackState）</param>
+        /// <param name="methodName">方法名</param>
+        /// <param name="baseGenericDefinition">开放泛型基类定义</param>
+        /// <param name="parameterTypes">方法的参数类型列表（可选，用于防止重载歧义）</param>
+        public static bool IsOverriddenFromGenericBase(
+            Type targetType,
+            string methodName,
+            Type baseGenericDefinition,
+            Type[] parameterTypes = null)
+        {
+            var key = (targetType, methodName);
+
+            // 使用带 factoryArgument 的 GetOrAdd 重载，避免闭包捕获产生委托 GC
+            return _cache.GetOrAdd(key, static (k, arg) =>
+            {
+                var (baseGeneric, paramTypes) = arg;
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+                MethodInfo method = paramTypes == null
+                    ? k.TargetType.GetMethod(k.MethodName, flags)
+                    : k.TargetType.GetMethod(k.MethodName, flags, null, paramTypes, null);
+
+                if (method == null) return false;
+                Type declType = method.DeclaringType;
+                if (declType == null) return false;
+
+                // 如果方法的声明类型就是底层泛型基类本身，说明未被子类重写
+                if (declType.IsGenericType && declType.GetGenericTypeDefinition() == baseGeneric)
+                {
+                    return false;
+                }
+
+                return true;
+            }, (baseGenericDefinition, parameterTypes));
+        }
+    }
 }
+
