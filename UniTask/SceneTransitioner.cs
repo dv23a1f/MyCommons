@@ -12,14 +12,25 @@ namespace DX.Core.SceneManagement
     /// </summary>
     public enum SceneTransitionPhase
     {
-        /// <summary> 切换刚开始，准备执行黑屏淡出 </summary>
-        Started,
-        /// <summary> 已经黑屏淡出完毕，即将调用 LoadSceneAsync </summary>
-        BeforeLoad,
-        /// <summary> 新场景加载并激活完毕，准备执行黑屏淡入 </summary>
-        AfterLoad,
-        /// <summary> 已经淡入完毕，整个场景切换流程完全结束 </summary>
-        Completed
+        /// <summary> 
+        /// 流程开始：过渡画面（黑屏/Loading）开始淡入，旧场景即将被遮挡 
+        /// </summary>
+        TransitionStarted,
+
+        /// <summary> 
+        /// 旧场景已被完全遮挡：即将调用 LoadSceneAsync 加载新场景 
+        /// </summary>
+        BeforeSceneLoad,
+
+        /// <summary> 
+        /// 新场景加载并激活完成：此时过渡画面仍在遮挡，可进行新场景对象初始化 
+        /// </summary>
+        AfterSceneLoad, // 或 SceneReady
+
+        /// <summary> 
+        /// 全流程结束：过渡画面已完全移除，玩家可正式操作交互 
+        /// </summary>
+        TransitionCompleted
     }
 
     public struct TransitionRequest
@@ -38,22 +49,14 @@ namespace DX.Core.SceneManagement
 
     public interface ISceneTransitionView
     {
-        /// <summary>
-        /// 淡出场景
-        /// </summary>
-        UniTask OnStartTransitionAsync();
-        /// <summary>
-        /// 显示进度
-        /// </summary>
+        /// <summary> 展现遮罩/过渡画面（如：淡入黑屏、展开百叶窗） </summary>
+        UniTask ShowOverlayAsync();
+        /// <summary> 显示进度 </summary>
         void OnUpdateProgress(float progress);
-        /// <summary>
-        /// 是否等待输入后再切换，不等待 return UniTask.CompletedTask
-        /// </summary>
+        /// <summary> 是否等待输入后再切换，不等待 return UniTask.CompletedTask </summary>
         UniTask OnWaitForConfirmAsync();
-        /// <summary>
-        /// 淡入场景
-        /// </summary>
-        UniTask OnEndTransitionAsync();
+        /// <summary> 隐藏遮罩/过渡画面（如：黑屏淡出，露出新场景） </summary>
+        UniTask HideOverlayAsync();
     }
 
     public static class SceneTransitioner
@@ -90,15 +93,15 @@ namespace DX.Core.SceneManagement
                 PreviousSceneName = SceneManager.GetActiveScene().name;
 
                 // 1. 广播：切换开始
-                SafeBroadcast(SceneTransitionPhase.Started, request.TargetSceneName);
+                SafeBroadcast(SceneTransitionPhase.TransitionStarted, request.TargetSceneName);
 
                 CurrentView?.OnUpdateProgress(0f);
 
                 if (CurrentView != null)
-                    await CurrentView.OnStartTransitionAsync();
+                    await CurrentView.ShowOverlayAsync();
 
                 // 2. 广播：加载前
-                SafeBroadcast(SceneTransitionPhase.BeforeLoad, request.TargetSceneName);
+                SafeBroadcast(SceneTransitionPhase.BeforeSceneLoad, request.TargetSceneName);
 
                 var op = SceneManager.LoadSceneAsync(request.TargetSceneName);
                 op.allowSceneActivation = false;
@@ -129,15 +132,15 @@ namespace DX.Core.SceneManagement
                 catch (Exception e) { Debug.LogException(e); }
 
                 // 3. 广播：加载完成后、淡入前
-                SafeBroadcast(SceneTransitionPhase.AfterLoad, request.TargetSceneName);
+                SafeBroadcast(SceneTransitionPhase.AfterSceneLoad, request.TargetSceneName);
 
                 await UniTask.DelayFrame(DelayFramesAfterLoaded, PlayerLoopTiming.Update);
 
                 if (CurrentView != null)
-                    await CurrentView.OnEndTransitionAsync();
+                    await CurrentView.HideOverlayAsync();
 
                 // 4. 广播：全流程结束
-                SafeBroadcast(SceneTransitionPhase.Completed, request.TargetSceneName);
+                SafeBroadcast(SceneTransitionPhase.TransitionCompleted, request.TargetSceneName);
             }
             finally
             {
