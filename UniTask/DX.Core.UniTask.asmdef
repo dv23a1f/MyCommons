@@ -1,0 +1,25 @@
+{
+    "name": "DX.Core.UniTask",
+    "rootNamespace": "DX.Core",
+    "references": [
+        "DX.Core",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "DX_UNITASK"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "",
+            "define": "DX_UNITASK"
+        }
+    ],
+    "noEngineReferences": false
+}
