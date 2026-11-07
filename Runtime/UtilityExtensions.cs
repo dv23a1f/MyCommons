@@ -18,7 +18,7 @@ namespace System.Runtime.CompilerServices
 }
 
 #endif
-namespace DX.Core.Extensions.Utility
+namespace DX.Core.Extensions
 {
     public static class UnityObjectExtensions
     {
