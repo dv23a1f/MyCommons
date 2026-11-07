@@ -20,7 +20,6 @@ namespace DX.Core.ReactiveVariable
 
         /// <summary>
         /// 将当前值重置为 C# 类型默认值 default(T) (数值为0, 引用类型为null)
-        /// 备注: 不会改变 BaseValue 基准值
         /// </summary>
         void ResetToDefault(bool notify = true);
         /// <summary>在不改变当前值的情况下，强制向总线和监听者重新广播通知一次</summary>
