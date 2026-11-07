@@ -802,7 +802,7 @@ namespace DX.Core.Extensions.UI
             button.AsEventBindable(cancellationToken)
                 .OnPointerClick(
                     _ => action.Invoke(),
-                    filter: eventData => button.interactable && eventData.button == PointerEventData.InputButton.Right
+                    filter: eventData => button.enabled && button.interactable && eventData.button == PointerEventData.InputButton.Right
                 );
         }
 
@@ -824,7 +824,7 @@ namespace DX.Core.Extensions.UI
             button.AsEventBindable(cancellationToken)
                 .OnPointerClick(
                     action,
-                    filter: eventData => button.interactable && eventData.button == PointerEventData.InputButton.Right
+                    filter: eventData => button.enabled && button.interactable && eventData.button == PointerEventData.InputButton.Right
                 );
         }
 
