@@ -68,6 +68,14 @@ namespace DX.Core.SceneManagement
 
         private static readonly Dictionary<SceneTransitionPhase, List<Action<string>>> Listeners = new();
 
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void AutoClear()
+        {
+            CurrentView = null;
+            Listeners.Clear();
+            PreviousSceneName = null;
+        }
+
         static SceneTransitioner()
         {
             foreach (SceneTransitionPhase phase in Enum.GetValues(typeof(SceneTransitionPhase)))
