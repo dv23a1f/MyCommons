@@ -3,7 +3,9 @@
     "rootNamespace": "DX.Core",
     "references": [
         "DX.Core",
-        "UniTask"
+        "UniTask",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
