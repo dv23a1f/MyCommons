@@ -1,6 +1,6 @@
 {
   "name": "com.dx.toolkit",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "displayName": "DxUnityToolkit",
   "description": "Common Core Scripts for Unity 6+",
   "unity": "6000.0",
