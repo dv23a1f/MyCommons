@@ -2,7 +2,8 @@
     "name": "DX.Core.Editor",
     "rootNamespace": "",
     "references": [
-        "DX.Core"
+        "DX.Core",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"
@@ -10,9 +11,7 @@
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,
-    "precompiledReferences": [
-        "Newtonsoft.Json.dll"
-    ],
+    "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
