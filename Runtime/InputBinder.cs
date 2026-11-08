@@ -9,6 +9,19 @@ namespace DX.Core.Input
 {
     public interface IInputService : IInputBinder
     {
+        public const string MapNone = "[None]";
+        public const string MapAll = "[All]";
+
+        /// <summary>
+        /// 当前生效的 ActionMap 名称
+        /// </summary>
+        string CurrentActionMap { get; }
+
+        /// <summary>
+        /// 切换 ActionMap。传 MapNone 禁用所有，传 MapAll 启用所有。
+        /// </summary>
+        void SwitchActionMap(string mapName);
+
         /// <summary>
         /// 直接读取当前帧的输入值（如 Vector2 移动向量、float 扳机值）
         /// </summary>
@@ -32,14 +45,24 @@ namespace DX.Core.Input
         /// </summary>
         void Bind(string actionName, Action<InputAction.CallbackContext> callback, CancellationToken ct = default);
 
+        /// <summary>
+        /// 监听持续输入（如移动 Vector2、滚轮 float）。监听 performed/Canceled。
+        /// </summary>
         void BindValue<T>(string actionName, Action<T> onValueChanged, CancellationToken ct = default) where T : struct;
+
         /// <summary>
         /// 单次点击（如：跳跃、开火、交互）。仅监听 performed。
         /// </summary>
         void BindButton(string actionName, Action onPerformed, CancellationToken ct = default);
 
         /// <summary>
+        /// 单次触发动作，同时携带当前绑定的数值 。仅监听 performed。
+        /// </summary>
+        void BindButton<T>(string actionName, Action<T> onPerformed, CancellationToken ct = default) where T : struct;
+
+        /// <summary>
         /// 持续按住/松开（如：瞄准、格挡、蓄力、冲刺跑）。监听 started (按下) 和 canceled (松开)。
+        /// 适用于未添加复杂 Interaction（如 Hold/Tap）的普通 Button/PassThrough Action。
         /// </summary>
         void BindHold(string actionName, Action onStarted = null, Action onCanceled = null, CancellationToken ct = default);
     }
@@ -49,6 +72,9 @@ namespace DX.Core.Input
         [SerializeField] private InputActionAsset _assetTemplate;
         [SerializeField] private bool _setAsGlobalDefault = true;
 
+        [SerializeField] private string _defaultActionMap = IInputService.MapAll;
+        public string CurrentActionMap { get; private set; } = IInputService.MapNone;
+
         private InputActionAsset _runtimeActions;
         private readonly Dictionary<string, InputAction> _actionCache = new();
         bool _initialized;
@@ -56,10 +82,10 @@ namespace DX.Core.Input
         public static IInputService Create(InputActionAsset asset, bool setAsGlobal = true)
         {
             if (asset == null) throw new NullReferenceException("InputActionAsset 为 null");
-            if (GameInput.DefaultInput != null)
+            if (GameInput.Binder != null)
             {
                 Debug.LogWarning("已存在 InputBinder 单例");
-                return GameInput.DefaultInput;
+                return GameInput.Binder;
             }
 
             GameObject go = new("[InputBinder]");
@@ -92,9 +118,9 @@ namespace DX.Core.Input
             {
                 if (_setAsGlobalDefault)
                 {
-                    if (GameInput.DefaultInput == null)
+                    if (GameInput.Binder == null)
                     {
-                        GameInput.DefaultInput = this;
+                        GameInput.Binder = this;
                         this.transform.SetParent(null);
                         this.gameObject.name = $"[Global] {this.gameObject.name}";
                         DontDestroyOnLoad(this.gameObject);
@@ -105,7 +131,7 @@ namespace DX.Core.Input
                     }
                 }
                 _runtimeActions = Instantiate(_assetTemplate);
-                _runtimeActions.Enable();
+                SwitchActionMap(_defaultActionMap);
                 _initialized = true;
             }
             else
@@ -116,25 +142,62 @@ namespace DX.Core.Input
 
         private void OnEnable()
         {
-            _runtimeActions?.Enable();
+            SwitchActionMap(CurrentActionMap);
         }
 
         private void OnDisable()
         {
-            _runtimeActions?.Disable();
+            SwitchActionMap(IInputService.MapNone);
         }
 
         private void OnDestroy()
         {
-            if (object.ReferenceEquals(GameInput.DefaultInput, this))
+            if (object.ReferenceEquals(GameInput.Binder, this))
             {
-                GameInput.DefaultInput = null;
+                GameInput.Binder = null;
             }
             if (_runtimeActions != null)
             {
                 Destroy(_runtimeActions);
                 _actionCache.Clear();
             }
+        }
+
+        // ===========================
+        //  API
+        // ===========================
+        public void SwitchActionMap(string mapName)
+        {
+            if (_runtimeActions == null) return;
+
+            // 1. 处理 None：全部禁用（过场动画、暂停）
+            if (mapName == IInputService.MapNone || string.IsNullOrEmpty(mapName))
+            {
+                _runtimeActions.Disable();
+                CurrentActionMap = IInputService.MapNone;
+                return;
+            }
+
+            // 2. 处理 All：全部启用
+            if (mapName == IInputService.MapAll)
+            {
+                _runtimeActions.Enable();
+                CurrentActionMap = IInputService.MapAll;
+                return;
+            }
+
+            // 3. 处理具体指定的 Map（如 "Player" 或 "UI"）
+            var targetMap = _runtimeActions.FindActionMap(mapName);
+            if (targetMap == null)
+            {
+                Debug.LogWarning($"[{nameof(InputBinder)}] 找不到名为 \"{mapName}\" 的 ActionMap！", this);
+                return;
+            }
+
+            // 先禁用全部，再单独激活目标 Map
+            _runtimeActions.Disable();
+            targetMap.Enable();
+            CurrentActionMap = targetMap.name;
         }
 
         /// <summary>
@@ -266,6 +329,9 @@ namespace DX.Core.Input
             }
         }
 
+        // ===========================
+        // 轮询类 API
+        // ===========================
         /// <summary>
         /// 直接读取当前值。若未找到 Action 则返回 default。
         /// </summary>
@@ -326,14 +392,14 @@ namespace DX.Core.Input
     /// </summary>
     public static class GameInput
     {
-        public static IInputService DefaultInput { get; internal set; }
+        public static IInputService Binder { get; internal set; }
 
         public static Vector2 PointerPosition => Pointer.current?.position.ReadValue() ?? Vector2.zero;
 
         // 鼠标/触屏检测
         public static bool GetPointerDown() => Pointer.current != null && Pointer.current.press.wasPressedThisFrame;
         public static bool IsPointerPressed() => Pointer.current != null && Pointer.current.press.isPressed;
-        public static bool GetPointeUp() => Pointer.current != null && Pointer.current.press.wasReleasedThisFrame;
+        public static bool GetPointerUp() => Pointer.current != null && Pointer.current.press.wasReleasedThisFrame;
 
         // 键盘枚举检测
         public static bool GetKeyDown(Key key) => Keyboard.current != null && Keyboard.current[key].wasPressedThisFrame;
@@ -351,7 +417,7 @@ namespace DX.Core.Input
 
         public static InputBindingScope AsInput(this MonoBehaviour mono, CancellationToken customToken = default)
         {
-            return mono.AsInput(GameInput.DefaultInput, customToken);
+            return mono.AsInput(GameInput.Binder, customToken);
         }
 
         public static InputBindingScope AsInput(this MonoBehaviour mono, IInputBinder binder, CancellationToken customToken = default)
@@ -371,19 +437,9 @@ namespace DX.Core.Input
             }
             else
             {
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    mono.destroyCancellationToken,
-                    customToken
-                );
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(mono.destroyCancellationToken, customToken);
 
-                linkedCts.Token.Register(static state =>
-                {
-                    if (state is CancellationTokenSource cts)
-                    {
-                        cts.Dispose();
-                    }
-                }, linkedCts);
-
+                mono.destroyCancellationToken.Register(() => linkedCts.Dispose());
                 effectiveToken = linkedCts.Token;
             }
 
