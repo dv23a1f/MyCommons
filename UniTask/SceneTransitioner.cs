@@ -131,24 +131,14 @@ namespace DX.Core.SceneManagement
         }
 
         /// <summary>
-        /// 注册一个 MonoBehaviour 组件 (实现 ISceneTransitionView 接口) 作为通用 view （尝试自动抓取CancellationToken并在销毁时注销）
+        /// 直接注册具体的过渡视图组件。（可传入token用于自动注销）
         /// </summary>
-        public static void RegisterTransitionView(MonoBehaviour monoView)
+        public static void RegisterTransitionView(ISceneTransitionView view, CancellationToken cancellationToken = default)
         {
-            if (monoView == null) return;
-            if (ViewProvider != null)
-            {
-                Debug.LogWarning("[SceneTransitioner] 在注册前已经存在 ViewProvider，可能存在重复注册行为", monoView);
-            }
-            if (monoView is ISceneTransitionView view)
-            {
-                RegisterTransitionView(_ => view, monoView.destroyCancellationToken);
-            }
-            else
-            {
-                Debug.LogWarning("[SceneTransitioner] 该组件未实现 ISceneTransitionView 接口", monoView);
-            }
+            if (view == null) return;
+            RegisterTransitionView(_ => view, cancellationToken);
         }
+
         /// <summary>
         /// 注册动态视图提供者（根据目标场景名称决定使用的 View）
         /// </summary>
