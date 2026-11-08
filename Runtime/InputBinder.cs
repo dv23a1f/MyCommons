@@ -80,9 +80,16 @@ namespace DX.Core.Input
         bool _initialized;
 
         /// <summary>
-        /// 【静态工厂方法】创建一个 GameObject 并挂载组件。可指定 setAsGlobal 注册为单例模式
+        /// 【静态工厂方法/全局】创建一个 [Global] InputBinder 并注册为全局单例。可通过 GameInput.Binder 访问
         /// </summary>
-        public static IInputService Create(InputActionAsset asset, bool setAsGlobal = true)
+        public static void CreateAsGlobal(InputActionAsset asset) => CreateInternal(asset, setAsGlobal: true);
+
+        /// <summary>
+        /// 【静态工厂方法】创建一个 GameObject 并挂载 InputBinder 组件。返回 IInputService
+        /// </summary>
+        public static IInputService Create(InputActionAsset asset) => CreateInternal(asset, setAsGlobal: false);
+
+        private static IInputService CreateInternal(InputActionAsset asset, bool setAsGlobal)
         {
             if (asset == null) throw new NullReferenceException("InputActionAsset 为 null");
             if (setAsGlobal && GameInput.Binder != null)
