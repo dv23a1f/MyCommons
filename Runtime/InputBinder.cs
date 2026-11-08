@@ -489,6 +489,11 @@ namespace DX.Core.Input
             return this;
         }
 
+        public readonly InputBindingScope BindButton<T>(string actionName, Action<T> onPerformed) where T : struct
+        {
+            _binder.BindButton(actionName, onPerformed, _ct);
+            return this;
+        }
         /// <summary>
         /// 监听按住与松开（started / canceled）
         /// </summary>
