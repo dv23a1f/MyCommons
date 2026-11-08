@@ -228,7 +228,7 @@ namespace DX.Core.SceneManagement
 
             if (!Application.CanStreamedLevelBeLoaded(request.TargetSceneName))
             {
-                Debug.LogError($"<color=red>[Scene]</color> 切换场景失败！目标场景不存在或未加入 Build Settings：{request.TargetSceneName}");
+                Debug.LogError($"<color=red>[Scene]</color> 切换场景失败！目标场景不存在或未加入 Build Settings：<color=red>{request.TargetSceneName}</color>");
                 return false;
             }
             if (request.LoadMode == LoadSceneMode.Additive && IsSubSceneLoaded(request.TargetSceneName))
@@ -287,6 +287,7 @@ namespace DX.Core.SceneManagement
                         if (sceneToUnload.IsValid() && sceneToUnload.isLoaded && request.SceneToUnload != request.TargetSceneName)
                         {
                             await SceneManager.UnloadSceneAsync(sceneToUnload);
+                            SubScenes.Remove(request.SceneToUnload);
                             // 卸载了旧场景，清理其遗留资产
                             GC.Collect();
                             await Resources.UnloadUnusedAssets();
@@ -426,11 +427,11 @@ namespace DX.Core.SceneManagement
 
                 if (request.LoadMode == LoadSceneMode.Single)
                 {
-                    Debug.Log($"<color=cyan>[Scene]</color> 迁移完成：[{PreviousSceneName}] → [{request.TargetSceneName}]");
+                    Debug.Log($"<color=cyan>[Scene]</color> 迁移成功：<color=yellow>[{PreviousSceneName}]</color> → <color=green>[{request.TargetSceneName}]</color>");
                 }
                 else if (request.LoadMode == LoadSceneMode.Additive)
                 {
-                    Debug.Log($"<color=cyan>[Scene]</color> 追加场景加载完成：[{request.TargetSceneName}]");
+                    Debug.Log($"<color=brown>[Scene]</color> 加载子场景：<color=green>[{request.TargetSceneName}]</color>");
                 }
                 return true;
             }
@@ -467,7 +468,7 @@ namespace DX.Core.SceneManagement
 
                 if (scene == activeScene)
                 {
-                    Debug.LogError($"<color=red>[Scene]</color>卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
+                    Debug.LogError($"<color=red>[Scene]</color> 卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
                     continue;
                 }
 
@@ -499,9 +500,14 @@ namespace DX.Core.SceneManagement
 
                 // 3. 广播所有场景的 BeforeUnload，并并发发起异步卸载
                 var unloadTasks = new List<UniTask>();
+                var unloadedSceneNames = new List<string>();
+
                 foreach (var scene in validScenesToUnload)
                 {
-                    SafeBroadcast(SceneTransitionPhase.BeforeUnload, scene.name);
+                    string sceneName = scene.name; // 提前记录场景名称
+                    unloadedSceneNames.Add(sceneName);
+
+                    SafeBroadcast(SceneTransitionPhase.BeforeUnload, sceneName);
                     unloadTasks.Add(SceneManager.UnloadSceneAsync(scene).ToUniTask());
                 }
 
@@ -509,10 +515,11 @@ namespace DX.Core.SceneManagement
                 await UniTask.WhenAll(unloadTasks);
 
                 // 5. 维护 HashSet：将成功卸载的场景移出集合
-                foreach (var scene in validScenesToUnload)
+                foreach (var sceneName in unloadedSceneNames)
                 {
-                    SubScenes.Remove(scene.name);
-                    SafeBroadcast(SceneTransitionPhase.UnloadCompleted, scene.name);
+                    SubScenes.Remove(sceneName); // 正确移除真实场景名
+                    Debug.Log($"<color=brown>[Scene]</color> 卸载子场景: <color=yellow>[{sceneName}]</color>");
+                    SafeBroadcast(SceneTransitionPhase.UnloadCompleted, sceneName);
                 }
 
                 // 6. 统一执行一次全局垃圾回收（只耗费一次卡顿时间）
