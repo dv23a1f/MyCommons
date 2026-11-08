@@ -79,18 +79,23 @@ namespace DX.Core.Input
         private readonly Dictionary<string, InputAction> _actionCache = new();
         bool _initialized;
 
+        /// <summary>
+        /// 【静态工厂方法】创建一个 GameObject 并挂载组件。可指定 setAsGlobal 注册为单例模式
+        /// </summary>
         public static IInputService Create(InputActionAsset asset, bool setAsGlobal = true)
         {
             if (asset == null) throw new NullReferenceException("InputActionAsset 为 null");
-            if (GameInput.Binder != null)
+            if (setAsGlobal && GameInput.Binder != null)
             {
-                Debug.LogWarning("已存在 InputBinder 单例");
+                Debug.LogWarning("已存在全局 InputBinder 单例");
                 return GameInput.Binder;
             }
 
-            GameObject go = new("[InputBinder]");
+            GameObject go = new(nameof(InputBinder));
+
             // 先禁用防止自动执行 Initialize
             go.SetActive(false);
+
             var binder = go.AddComponent<InputBinder>();
             binder._assetTemplate = asset;
 
@@ -102,6 +107,7 @@ namespace DX.Core.Input
 
             binder.Initialize();
             go.SetActive(true);
+
             return binder;
         }
 
@@ -110,34 +116,34 @@ namespace DX.Core.Input
             Initialize();
         }
 
-        public void Initialize()
+        private void Initialize()
         {
             if (_initialized) return;
 
-            if (_assetTemplate != null)
-            {
-                if (_setAsGlobalDefault)
-                {
-                    if (GameInput.Binder == null)
-                    {
-                        GameInput.Binder = this;
-                        this.transform.SetParent(null);
-                        this.gameObject.name = $"[Global] {this.gameObject.name}";
-                        DontDestroyOnLoad(this.gameObject);
-                    }
-                    else
-                    {
-                        Destroy(this.gameObject);
-                    }
-                }
-                _runtimeActions = Instantiate(_assetTemplate);
-                SwitchActionMap(_defaultActionMap);
-                _initialized = true;
-            }
-            else
+            if (_assetTemplate == null)
             {
                 Debug.LogWarning($"[{nameof(InputBinder)}] 未指定 InputActionAsset！", this);
+                return;
             }
+            // 注册为全局组件
+            if (_setAsGlobalDefault)
+            {
+                if (GameInput.Binder == null)
+                {
+                    GameInput.Binder = this;
+                    this.transform.SetParent(null);
+                    this.gameObject.name = $"[Global] {this.gameObject.name}";
+                    DontDestroyOnLoad(this.gameObject);
+                }
+                else
+                {
+                    Destroy(this.gameObject);
+                }
+            }
+
+            _runtimeActions = Instantiate(_assetTemplate);
+            SwitchActionMap(_defaultActionMap);
+            _initialized = true;
         }
 
         private void OnEnable()
@@ -169,12 +175,14 @@ namespace DX.Core.Input
         public void SwitchActionMap(string mapName)
         {
             if (_runtimeActions == null) return;
+            if (mapName == CurrentActionMap) return;
 
             // 1. 处理 None：全部禁用（过场动画、暂停）
             if (mapName == IInputService.MapNone || string.IsNullOrEmpty(mapName))
             {
                 _runtimeActions.Disable();
                 CurrentActionMap = IInputService.MapNone;
+                Debug.Log($"[{nameof(InputBinder)}] ActionMap 已全部禁用。", this);
                 return;
             }
 
@@ -183,6 +191,7 @@ namespace DX.Core.Input
             {
                 _runtimeActions.Enable();
                 CurrentActionMap = IInputService.MapAll;
+                Debug.Log($"[{nameof(InputBinder)}] ActionMap 已全部启用。", this);
                 return;
             }
 
@@ -198,6 +207,7 @@ namespace DX.Core.Input
             _runtimeActions.Disable();
             targetMap.Enable();
             CurrentActionMap = targetMap.name;
+            Debug.Log($"[{nameof(InputBinder)}] ActionMap 已切换为: \"{CurrentActionMap}\"。", this);
         }
 
         /// <summary>
