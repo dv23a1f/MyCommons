@@ -88,6 +88,33 @@ namespace DX.Core.SceneManagement
         public static implicit operator TransitionRequest(string targetSceneName) => new(targetSceneName);
     }
 
+    public struct UnloadRequest
+    {
+        /// <summary> 需要卸载的目标场景列表 </summary>
+        public IReadOnlyList<string> SceneNames;
+        /// <summary> 是否启用遮罩过渡动画 </summary>
+        public bool EnableTransitionView;
+        /// <summary> 卸载完成后是否触发无用资源清理（GC + UnloadUnusedAssets），默认 true </summary>
+        public bool TriggerGC;
+
+        public UnloadRequest(string sceneName, bool enableTransitionView = false, bool triggerGC = true)
+        {
+            SceneNames = new[] { sceneName };
+            EnableTransitionView = enableTransitionView;
+            TriggerGC = triggerGC;
+        }
+
+        public UnloadRequest(IEnumerable<string> sceneNames, bool enableTransitionView = false, bool triggerGC = true)
+        {
+            SceneNames = new List<string>(sceneNames);
+            EnableTransitionView = enableTransitionView;
+            TriggerGC = triggerGC;
+        }
+
+        // 隐式转换：可以直接把单个场景名当 Request 传入
+        public static implicit operator UnloadRequest(string sceneName) => new(sceneName);
+    }
+
     public interface ISceneTransitionView
     {
         /// <summary> 展现遮罩/过渡画面（如：淡入黑屏、展开百叶窗） </summary>
@@ -106,6 +133,10 @@ namespace DX.Core.SceneManagement
         public static string ActiveSceneName => SceneManager.GetActiveScene().name;
         /// <summary> 上一个被激活的场景名称 </summary>
         public static string PreviousSceneName { get; private set; }
+
+        private static readonly HashSet<string> SubScenes = new();
+        /// <summary> 当前已挂载的所有未激活 Additive 子场景</summary>
+        public static IReadOnlyCollection<string> LoadedSubScenes => SubScenes;
         /// <summary> 当前用于遮罩/过渡的组件提供者 </summary>
         private static Func<string, ISceneTransitionView> ViewProvider { get; set; }
 
@@ -120,6 +151,7 @@ namespace DX.Core.SceneManagement
             Listeners.ForEach(kvp => kvp.Value?.Clear());
             PreviousSceneName = null;
             ViewProvider = null;
+            SubScenes.Clear();
         }
 
         static SceneTransitioner()
@@ -163,14 +195,19 @@ namespace DX.Core.SceneManagement
             }
         }
 
-        public static async UniTask TransitionAsync(TransitionRequest request)
+        public static async UniTask<bool> TransitionAsync(TransitionRequest request)
         {
-            if (IsProcessing) return;
+            if (IsProcessing) return false;
 
             if (!Application.CanStreamedLevelBeLoaded(request.TargetSceneName))
             {
                 Debug.LogError($"<color=red>[SceneTransitioner] 切换场景失败！目标场景不存在或未加入 Build Settings：{request.TargetSceneName}</color>");
-                return;
+                return false;
+            }
+            if (request.LoadMode == LoadSceneMode.Additive && IsSubSceneLoaded(request.TargetSceneName))
+            {
+                Debug.LogWarning($"[SceneTransitioner] 子场景 [{request.TargetSceneName}] 已经加载过，跳过重复加载。");
+                return false;
             }
 
             IsProcessing = true;
@@ -260,13 +297,28 @@ namespace DX.Core.SceneManagement
                 op.allowSceneActivation = true;
                 await op;
 
-                // 6. 如果是 Additive 且要求设为活动场景，将新场景 B 设为 ActiveScene
-                if (request.LoadMode == LoadSceneMode.Additive && request.SetActiveOnLoaded)
+                if (request.LoadMode == LoadSceneMode.Single)
                 {
-                    Scene loadedScene = SceneManager.GetSceneByName(request.TargetSceneName);
-                    if (loadedScene.IsValid())
+                    // Single 模式下，旧的所有 Additive 场景已被 Unity 物理清空
+                    SubScenes.Clear();
+                }
+                // 6. 如果是 Additive 且要求设为活动场景，将新场景 B 设为 ActiveScene
+                else if (request.LoadMode == LoadSceneMode.Additive)
+                {
+                    if (request.SetActiveOnLoaded)
                     {
-                        SceneManager.SetActiveScene(loadedScene);
+                        Scene loadedScene = SceneManager.GetSceneByName(request.TargetSceneName);
+                        if (loadedScene.IsValid())
+                        {
+                            SceneManager.SetActiveScene(loadedScene);
+                        }
+                        // 如果被设为了 Active，确保它不在子场景集合里（防御性移除）
+                        SubScenes.Remove(request.TargetSceneName);
+                    }
+                    else
+                    {
+                        // 满足条件：是 Additive 且 未被设为 Active，加入记录
+                        SubScenes.Add(request.TargetSceneName);
                     }
                 }
 
@@ -344,6 +396,8 @@ namespace DX.Core.SceneManagement
                     // 广播：全流程结束
                     SafeBroadcast(SceneTransitionPhase.TransitionCompleted, request.TargetSceneName);
                 }
+
+                return true;
             }
             finally
             {
@@ -356,48 +410,119 @@ namespace DX.Core.SceneManagement
         }
 
         /// <summary>
-        /// 纯卸载某个 Additive 场景（不加载新场景），例如关闭小游戏/抽卡/副本地块
+        /// 支持单场景或批量场景卸载
         /// </summary>
-        public static async UniTask UnloadAsync(string sceneName, bool enableTransitionView = false)
+        public static async UniTask<bool> UnloadAsync(UnloadRequest request)
         {
-            if (IsProcessing) return;
-            Scene scene = SceneManager.GetSceneByName(sceneName);
-            if (!scene.IsValid() || !scene.isLoaded) return;
+            if (IsProcessing) return false;
+            if (request.SceneNames == null || request.SceneNames.Count == 0) return false;
+
+            // 1. 过滤出真正合法、已加载的场景，并严格排除 Active 场景
+            Scene activeScene = SceneManager.GetActiveScene();
+            var validScenesToUnload = new List<Scene>();
+
+            foreach (var sceneName in request.SceneNames)
+            {
+                Scene scene = SceneManager.GetSceneByName(sceneName);
+                if (!scene.IsValid() || !scene.isLoaded)
+                {
+                    Debug.LogWarning($"[SceneTransitioner] 跳过无效场景：[{sceneName}]");
+                    continue;
+                }
+
+                // 防御：严禁包含当前活跃场景
+                if (scene == activeScene)
+                {
+                    Debug.LogError($"[SceneTransitioner] 卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
+                    continue;
+                }
+
+                validScenesToUnload.Add(scene);
+            }
+
+            if (validScenesToUnload.Count == 0) return false;
 
             IsProcessing = true;
             try
             {
+                // 2. 遮罩淡入（只需执行一次）
                 ISceneTransitionView currentView = null;
-                try
+                if (request.EnableTransitionView)
                 {
-                    currentView = ViewProvider?.Invoke(sceneName);
-                }
-                catch (System.Exception e) { Debug.LogException(e); }
+                    try
+                    {
+                        // 使用首个场景名称作为获取 View 的标识
+                        currentView = ViewProvider?.Invoke(validScenesToUnload[0].name);
+                    }
+                    catch (Exception e) { Debug.LogException(e); }
 
-                if (enableTransitionView && currentView != null)
+                    if (currentView != null)
+                    {
+                        SafeBroadcast(SceneTransitionPhase.TransitionStarted, validScenesToUnload[0].name);
+                        await currentView.ShowOverlayAsync();
+                    }
+                }
+
+                // 3. 广播所有场景的 BeforeUnload，并并发发起异步卸载
+                var unloadTasks = new List<UniTask>();
+                foreach (var scene in validScenesToUnload)
                 {
-                    SafeBroadcast(SceneTransitionPhase.TransitionStarted, sceneName);
-                    await currentView.ShowOverlayAsync();
+                    SafeBroadcast(SceneTransitionPhase.BeforeUnload, scene.name);
+                    unloadTasks.Add(SceneManager.UnloadSceneAsync(scene).ToUniTask());
                 }
 
-                SafeBroadcast(SceneTransitionPhase.BeforeUnload, sceneName);
-                await SceneManager.UnloadSceneAsync(scene);
+                // 4. 等待所有场景物理卸载完毕
+                await UniTask.WhenAll(unloadTasks);
 
-                GC.Collect();
-                await Resources.UnloadUnusedAssets();
-                SafeBroadcast(SceneTransitionPhase.UnloadCompleted, sceneName);
+                // 5. 维护 HashSet：将成功卸载的场景移出集合
+                foreach (var scene in validScenesToUnload)
+                {
+                    SubScenes.Remove(scene.name);
+                    SafeBroadcast(SceneTransitionPhase.UnloadCompleted, scene.name);
+                }
 
-                if (enableTransitionView && currentView != null)
+                // 6. 统一执行一次全局垃圾回收（只耗费一次卡顿时间）
+                if (request.TriggerGC)
+                {
+                    GC.Collect();
+                    await Resources.UnloadUnusedAssets();
+                }
+
+                // 7. 遮罩淡出（只需执行一次）
+                if (currentView != null && request.EnableTransitionView)
                 {
                     await currentView.HideOverlayAsync();
-                    SafeBroadcast(SceneTransitionPhase.TransitionCompleted, sceneName);
+                    SafeBroadcast(SceneTransitionPhase.TransitionCompleted, validScenesToUnload[0].name);
                 }
+
+                return true;
             }
             finally
             {
                 IsProcessing = false;
             }
         }
+
+        /// <summary>
+        /// 检查某个子场景是否已经被挂载
+        /// </summary>
+        public static bool IsSubSceneLoaded(string sceneName) => SubScenes.Contains(sceneName);
+
+        /// <summary> 便捷重载：卸载单个场景 </summary>
+        public static UniTask<bool> UnloadAsync(string sceneName, bool enableTransitionView = false)
+            => UnloadAsync(new UnloadRequest(sceneName, enableTransitionView));
+
+        /// <summary>
+        /// 一键卸载所有挂载的子场景（遮罩只播放一次，GC 只运行一次）
+        /// </summary>
+        public static async UniTask<bool> UnloadAllSubScenesAsync(bool enableTransitionView = false)
+        {
+            if (SubScenes.Count == 0) return true;
+
+            // 直接打包所有 SubScenes 发起批量卸载
+            return await UnloadAsync(new UnloadRequest(SubScenes, enableTransitionView));
+        }
+
         //~ ========== 事件订阅 ==========
         /// <summary>
         /// 订阅场景切换事件
