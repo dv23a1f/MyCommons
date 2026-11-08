@@ -13,7 +13,6 @@ namespace DX.Core.SceneManagement
     /// </summary>
     public enum SceneTransitionPhase
     {
-
         /// <summary> 
         /// 流程开始：开始过渡画面（黑屏/Loading）
         /// </summary>
@@ -26,8 +25,9 @@ namespace DX.Core.SceneManagement
 
         /// <summary> 
         /// 新场景加载完毕，场景内组件 Awake/Start 已执行
+        /// 初始场景加载后，且未在 Awake/Start 中切换场景时会补发该事件
         /// </summary>
-        AfterSceneLoad, // 或 SceneReady
+        SceneReady,
 
         /// <summary> 
         /// 过渡画面流程已结束
@@ -97,18 +97,18 @@ namespace DX.Core.SceneManagement
         /// <summary> 卸载完成后是否触发无用资源清理（GC + UnloadUnusedAssets），默认 true </summary>
         public bool TriggerGC;
 
-        public UnloadRequest(string sceneName, bool enableTransitionView = false, bool triggerGC = true)
+        public UnloadRequest(string sceneName)
         {
             SceneNames = new[] { sceneName };
-            EnableTransitionView = enableTransitionView;
-            TriggerGC = triggerGC;
+            EnableTransitionView = true;
+            TriggerGC = true;
         }
 
-        public UnloadRequest(IEnumerable<string> sceneNames, bool enableTransitionView = false, bool triggerGC = true)
+        public UnloadRequest(IEnumerable<string> sceneNames)
         {
             SceneNames = new List<string>(sceneNames);
-            EnableTransitionView = enableTransitionView;
-            TriggerGC = triggerGC;
+            EnableTransitionView = true;
+            TriggerGC = true;
         }
 
         // 隐式转换：可以直接把单个场景名当 Request 传入
@@ -145,6 +145,15 @@ namespace DX.Core.SceneManagement
 
         private static readonly Dictionary<SceneTransitionPhase, List<Action<string>>> Listeners = new();
 
+        //! =============== 初始化相关 ===============
+        static SceneTransitioner()
+        {
+            foreach (SceneTransitionPhase phase in Enum.GetValues(typeof(SceneTransitionPhase)))
+            {
+                Listeners[phase] = new List<Action<string>>();
+            }
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void AutoClear()
         {
@@ -154,14 +163,31 @@ namespace DX.Core.SceneManagement
             SubScenes.Clear();
         }
 
-        static SceneTransitioner()
+        // 首场景加载后自动触发
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void InitializeFirstScene()
         {
-            foreach (SceneTransitionPhase phase in Enum.GetValues(typeof(SceneTransitionPhase)))
-            {
-                Listeners[phase] = new List<Action<string>>();
-            }
+            BroadcastFirstSceneAsync().Forget();
         }
 
+        private static async UniTaskVoid BroadcastFirstSceneAsync()
+        {
+            // 等待到首帧生命周期末尾，确保首场景物体的 Awake/Start 和 Subscribe 已全部完成
+            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
+
+            // 如果在首帧内有人主动调用了 TransitionAsync，
+            // 此时 PreviousSceneName 会被赋值，且 IsProcessing 为 true，直接跳过补发
+            if (PreviousSceneName != null || IsProcessing) return;
+
+            string currentSceneName = SceneManager.GetActiveScene().name;
+
+            //  补发场景就绪广播
+            SafeBroadcast(SceneTransitionPhase.SceneReady, currentSceneName);
+
+            // 保持 PreviousSceneName 为 null，代表当前场景没有前置场景。
+        }
+
+        //! =============================
         /// <summary>
         /// 直接注册具体的过渡视图组件。（可传入token用于自动注销）
         /// </summary>
@@ -374,7 +400,7 @@ namespace DX.Core.SceneManagement
                 }
 
                 // 广播：加载完成后、淡入前
-                SafeBroadcast(SceneTransitionPhase.AfterSceneLoad, request.TargetSceneName);
+                SafeBroadcast(SceneTransitionPhase.SceneReady, request.TargetSceneName);
 
                 if (currentView != null && request.EnableTransitionView)
                 {
@@ -430,7 +456,6 @@ namespace DX.Core.SceneManagement
                     continue;
                 }
 
-                // 防御：严禁包含当前活跃场景
                 if (scene == activeScene)
                 {
                     Debug.LogError($"[SceneTransitioner] 卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
@@ -509,18 +534,18 @@ namespace DX.Core.SceneManagement
         public static bool IsSubSceneLoaded(string sceneName) => SubScenes.Contains(sceneName);
 
         /// <summary> 便捷重载：卸载单个场景 </summary>
-        public static UniTask<bool> UnloadAsync(string sceneName, bool enableTransitionView = false)
-            => UnloadAsync(new UnloadRequest(sceneName, enableTransitionView));
+        public static UniTask<bool> UnloadAsync(string sceneName, bool enableTransitionView = true)
+            => UnloadAsync(new UnloadRequest(sceneName) { EnableTransitionView = enableTransitionView });
 
         /// <summary>
         /// 一键卸载所有挂载的子场景（遮罩只播放一次，GC 只运行一次）
         /// </summary>
-        public static async UniTask<bool> UnloadAllSubScenesAsync(bool enableTransitionView = false)
+        public static async UniTask<bool> UnloadAllSubScenesAsync(bool enableTransitionView = true)
         {
             if (SubScenes.Count == 0) return true;
 
             // 直接打包所有 SubScenes 发起批量卸载
-            return await UnloadAsync(new UnloadRequest(SubScenes, enableTransitionView));
+            return await UnloadAsync(new UnloadRequest(SubScenes) { EnableTransitionView = enableTransitionView });
         }
 
         //~ ========== 事件订阅 ==========
