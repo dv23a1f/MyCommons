@@ -447,15 +447,23 @@ namespace DX.Core.Input
             }
             else
             {
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(mono.destroyCancellationToken, customToken);
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    mono.destroyCancellationToken,
+                    customToken);
 
-                mono.destroyCancellationToken.Register(() => linkedCts.Dispose());
+                linkedCts.Token.Register(static state =>
+                {
+                    if (state is CancellationTokenSource cts)
+                    {
+                        cts.Dispose();
+                    }
+                }, linkedCts);
+
                 effectiveToken = linkedCts.Token;
             }
 
             return new InputBindingScope(binder, effectiveToken);
         }
-
     }
 
     /// <summary>
