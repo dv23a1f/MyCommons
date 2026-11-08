@@ -139,6 +139,7 @@ namespace DX.Core.SceneManagement
         public static IReadOnlyCollection<string> LoadedSubScenes => SubScenes;
         /// <summary> 当前用于遮罩/过渡的组件提供者 </summary>
         private static Func<string, ISceneTransitionView> ViewProvider { get; set; }
+        public static bool HasViewProvider => ViewProvider != null;
 
         public static int DelayFramesAfterLoaded { get; set; } = 5;
         public static bool IsProcessing { get; private set; }
@@ -203,9 +204,9 @@ namespace DX.Core.SceneManagement
         public static void RegisterTransitionView(Func<string, ISceneTransitionView> provider, CancellationToken cancellationToken = default)
         {
             if (provider == null) return;
-            if (ViewProvider != null)
+            if (HasViewProvider)
             {
-                Debug.LogWarning("[SceneTransitioner] 在注册前已经存在 ViewProvider，可能存在重复注册行为");
+                Debug.LogWarning("<color=yellow>[Scene]</color> 在注册前已经存在 ViewProvider，可能存在重复注册行为");
             }
             ViewProvider = provider;
             if (cancellationToken.CanBeCanceled)
@@ -227,12 +228,12 @@ namespace DX.Core.SceneManagement
 
             if (!Application.CanStreamedLevelBeLoaded(request.TargetSceneName))
             {
-                Debug.LogError($"<color=red>[SceneTransitioner] 切换场景失败！目标场景不存在或未加入 Build Settings：{request.TargetSceneName}</color>");
+                Debug.LogError($"<color=red>[Scene]</color> 切换场景失败！目标场景不存在或未加入 Build Settings：{request.TargetSceneName}");
                 return false;
             }
             if (request.LoadMode == LoadSceneMode.Additive && IsSubSceneLoaded(request.TargetSceneName))
             {
-                Debug.LogWarning($"[SceneTransitioner] 子场景 [{request.TargetSceneName}] 已经加载过，跳过重复加载。");
+                Debug.LogWarning($"<color=yellow>[Scene]</color> 子场景 [{request.TargetSceneName}] 已经加载过，跳过重复加载。");
                 return false;
             }
 
@@ -370,7 +371,7 @@ namespace DX.Core.SceneManagement
                     }
                     catch (OperationCanceledException)
                     {
-                        Debug.LogWarning($"[SceneTransitioner] 场景 [{request.TargetSceneName}] 的 OnLoadedBeforeFadeIn 超时，已跳过。");
+                        Debug.LogWarning($"<color=yellow>[Scene]</color> 场景 [{request.TargetSceneName}] 的 OnLoadedBeforeFadeIn 超时，已跳过。");
                     }
                     catch (Exception e)
                     {
@@ -423,6 +424,14 @@ namespace DX.Core.SceneManagement
                     SafeBroadcast(SceneTransitionPhase.TransitionCompleted, request.TargetSceneName);
                 }
 
+                if (request.LoadMode == LoadSceneMode.Single)
+                {
+                    Debug.Log($"<color=cyan>[Scene]</color> 迁移完成：[{PreviousSceneName}] → [{request.TargetSceneName}]");
+                }
+                else if (request.LoadMode == LoadSceneMode.Additive)
+                {
+                    Debug.Log($"<color=cyan>[Scene]</color> 追加场景加载完成：[{request.TargetSceneName}]");
+                }
                 return true;
             }
             finally
@@ -452,13 +461,13 @@ namespace DX.Core.SceneManagement
                 Scene scene = SceneManager.GetSceneByName(sceneName);
                 if (!scene.IsValid() || !scene.isLoaded)
                 {
-                    Debug.LogWarning($"[SceneTransitioner] 跳过无效场景：[{sceneName}]");
+                    Debug.LogWarning($"<color=yellow>[Scene]</color> 跳过无效场景：[{sceneName}]");
                     continue;
                 }
 
                 if (scene == activeScene)
                 {
-                    Debug.LogError($"[SceneTransitioner] 卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
+                    Debug.LogError($"<color=red>[Scene]</color>卸载拦截：场景 [{sceneName}] 是当前活跃场景，已跳过！");
                     continue;
                 }
 
