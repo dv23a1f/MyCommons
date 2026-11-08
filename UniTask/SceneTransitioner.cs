@@ -206,7 +206,7 @@ namespace DX.Core.SceneManagement
             if (provider == null) return;
             if (HasViewProvider)
             {
-                Debug.LogWarning("<color=yellow>[Scene]</color> 在注册前已经存在 ViewProvider，可能存在重复注册行为");
+                Debug.LogWarning("<color=yellow>[Scene] 在注册前已经存在 ViewProvider，可能存在重复注册。</color>");
             }
             ViewProvider = provider;
             if (cancellationToken.CanBeCanceled)
@@ -228,12 +228,12 @@ namespace DX.Core.SceneManagement
 
             if (!Application.CanStreamedLevelBeLoaded(request.TargetSceneName))
             {
-                Debug.LogError($"<color=red>[Scene]</color> 切换场景失败！目标场景不存在或未加入 Build Settings：<color=red>{request.TargetSceneName}</color>");
+                Debug.LogError($"<color=red>[Scene] 切换场景失败！目标场景不存在或未加入 Build Settings：{request.TargetSceneName}</color>");
                 return false;
             }
             if (request.LoadMode == LoadSceneMode.Additive && IsSubSceneLoaded(request.TargetSceneName))
             {
-                Debug.LogWarning($"<color=yellow>[Scene]</color> 子场景 [{request.TargetSceneName}] 已经加载过，跳过重复加载。");
+                Debug.LogWarning($"<color=yellow>[Scene] 子场景 [{request.TargetSceneName}] 已经加载过，跳过重复加载。</color> ");
                 return false;
             }
 
@@ -249,12 +249,13 @@ namespace DX.Core.SceneManagement
                 ISceneTransitionView currentView = null;
                 try
                 {
-                    currentView = ViewProvider?.Invoke(request.TargetSceneName);
+                    if (HasViewProvider && request.EnableTransitionView)
+                        currentView = ViewProvider?.Invoke(request.TargetSceneName);
                 }
                 catch (System.Exception e) { Debug.LogException(e); }
 
                 // 1. 广播：切换开始
-                if (currentView != null && request.EnableTransitionView)
+                if (currentView != null)
                 {
                     SafeBroadcast(SceneTransitionPhase.TransitionStarted, request.TargetSceneName);
 
@@ -262,7 +263,7 @@ namespace DX.Core.SceneManagement
                 }
 
                 // 2. UI遮罩黑屏淡入
-                if (currentView != null && request.EnableTransitionView)
+                if (currentView != null)
                 {
                     try
                     {
@@ -307,7 +308,7 @@ namespace DX.Core.SceneManagement
 
                 while (op.progress < 0.9f)
                 {
-                    if (currentView != null && request.EnableTransitionView)
+                    if (currentView != null)
                     {
                         try
                         {
@@ -381,7 +382,7 @@ namespace DX.Core.SceneManagement
                 }
 
                 // 等待用户确认
-                if (currentView != null && request.EnableTransitionView)
+                if (currentView != null)
                 {
                     try
                     {
@@ -404,7 +405,7 @@ namespace DX.Core.SceneManagement
                 // 广播：加载完成后、淡入前
                 SafeBroadcast(SceneTransitionPhase.SceneReady, request.TargetSceneName);
 
-                if (currentView != null && request.EnableTransitionView)
+                if (currentView != null)
                 {
                     try
                     {
