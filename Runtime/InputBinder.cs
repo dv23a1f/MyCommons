@@ -39,11 +39,6 @@ namespace DX.Core.Input
         void BindButton(string actionName, Action onPerformed, CancellationToken ct = default);
 
         /// <summary>
-        /// 单次触发动作，同时携带当前绑定的数值（如带坐标的点击、带力度的按键）
-        /// 仅监听 performed 阶段
-        /// </summary>
-        void BindButton<T>(string actionName, Action<T> onPerformed, CancellationToken ct = default) where T : struct;
-        /// <summary>
         /// 持续按住/松开（如：瞄准、格挡、蓄力、冲刺跑）。监听 started (按下) 和 canceled (松开)。
         /// </summary>
         void BindHold(string actionName, Action onStarted = null, Action onCanceled = null, CancellationToken ct = default);
@@ -333,25 +328,22 @@ namespace DX.Core.Input
     {
         public static IInputService DefaultInput { get; internal set; }
 
-        // 鼠标检测
-        public static bool GetMouseLeftClick() => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
-        public static bool GetMouseRightClick() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
-        public static bool GetMouseMiddleClick() => Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame;
+        public static Vector2 PointerPosition => Pointer.current?.position.ReadValue() ?? Vector2.zero;
 
-        public static bool IsMouseLeftPressing() => Mouse.current != null && Mouse.current.leftButton.isPressed;
-        public static bool IsMouseRightPressing() => Mouse.current != null && Mouse.current.rightButton.isPressed;
-        public static bool IsMouseMiddlePressing() => Mouse.current != null && Mouse.current.middleButton.isPressed;
+        // 鼠标/触屏检测
+        public static bool GetPointerDown() => Pointer.current != null && Pointer.current.press.wasPressedThisFrame;
+        public static bool IsPointerPressed() => Pointer.current != null && Pointer.current.press.isPressed;
+        public static bool GetPointeUp() => Pointer.current != null && Pointer.current.press.wasReleasedThisFrame;
 
         // 键盘枚举检测
         public static bool GetKeyDown(Key key) => Keyboard.current != null && Keyboard.current[key].wasPressedThisFrame;
-        public static bool IsKeyPressing(Key key) => Keyboard.current != null && Keyboard.current[key].isPressed;
+        public static bool IsKeyPressed(Key key) => Keyboard.current != null && Keyboard.current[key].isPressed;
         public static bool GetKeyUp(Key key) => Keyboard.current != null && Keyboard.current[key].wasReleasedThisFrame;
 
         // 键盘字符串检测
         public static bool GetKeyDown(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasPressedThisFrame;
-        public static bool IsKeyPressing(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.isPressed;
+        public static bool IsKeyPressed(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.isPressed;
         public static bool GetKeyUp(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasReleasedThisFrame;
-
     }
 
     public static class InputExtensions
@@ -423,11 +415,6 @@ namespace DX.Core.Input
             return this;
         }
 
-        public readonly InputBindingScope BindButton<T>(string actionName, Action<T> onPerformed) where T : struct
-        {
-            _binder.BindButton(actionName, onPerformed, _ct);
-            return this;
-        }
         /// <summary>
         /// 监听按住与松开（started / canceled）
         /// </summary>
