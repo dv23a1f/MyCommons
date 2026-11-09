@@ -33,6 +33,24 @@ namespace DX.Core.Extensions
             return obj == null ? null : obj;
         }
     }
+    public static class PrefabExtensions
+    {
+        /// <summary>
+        /// 判断该物体/组件是否作为实例存在于当前场景中 (true: 存在于场景而非 Prefab)
+        /// </summary>
+        public static bool IsInScene(this GameObject go)
+        {
+            return go != null && go.scene.IsValid() && !string.IsNullOrEmpty(go.scene.name);
+        }
+
+        /// <summary>
+        /// 判断该物体/组件是否作为实例存在于当前场景中 (true: 存在于场景而非 Prefab)
+        /// </summary>
+        public static bool IsInScene(this Component component)
+        {
+            return component != null && component.gameObject.IsInScene();
+        }
+    }
     public static class ListExtensions
     {
         /// <summary>
