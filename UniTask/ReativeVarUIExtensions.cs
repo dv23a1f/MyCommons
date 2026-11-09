@@ -309,7 +309,7 @@ namespace DX.Core.ReactiveVariable.UIExtensions
         public static IDisposable BindText<T>(
             this TMP_Text textComponent,
             IReadOnlyReactiveVar<T> sharedVar,
-            string format = null,
+            string format,
             CancellationToken customCt = default)
         {
             if (string.IsNullOrEmpty(format))
