@@ -189,7 +189,7 @@ namespace DX.Core.Input
             {
                 _runtimeActions.Disable();
                 CurrentActionMap = IInputService.MapNone;
-                Debug.Log($"[{nameof(InputBinder)}] ActionMap 已全部禁用。", this);
+                Debug.Log($"[{nameof(InputBinder)}] \"{_assetTemplate.name}\" ActionMap 已全部禁用。", this);
                 return;
             }
 
@@ -198,7 +198,7 @@ namespace DX.Core.Input
             {
                 _runtimeActions.Enable();
                 CurrentActionMap = IInputService.MapAll;
-                Debug.Log($"[{nameof(InputBinder)}] ActionMap 已全部启用。", this);
+                Debug.Log($"[{nameof(InputBinder)}] \"{_assetTemplate.name}\" ActionMap 已全部启用。", this);
                 return;
             }
 
@@ -206,7 +206,7 @@ namespace DX.Core.Input
             var targetMap = _runtimeActions.FindActionMap(mapName);
             if (targetMap == null)
             {
-                Debug.LogWarning($"[{nameof(InputBinder)}] 找不到名为 \"{mapName}\" 的 ActionMap！", this);
+                Debug.LogWarning($"[{nameof(InputBinder)}] \"{_assetTemplate.name}\" 找不到名为 \"{mapName}\" 的 ActionMap！", this);
                 return;
             }
 
@@ -214,7 +214,7 @@ namespace DX.Core.Input
             _runtimeActions.Disable();
             targetMap.Enable();
             CurrentActionMap = targetMap.name;
-            Debug.Log($"[{nameof(InputBinder)}] ActionMap 已切换为: \"{CurrentActionMap}\"。", this);
+            Debug.Log($"[{nameof(InputBinder)}] \"{_assetTemplate.name}\" ActionMap 已切换为: \"{CurrentActionMap}\"。", this);
         }
 
         /// <summary>
