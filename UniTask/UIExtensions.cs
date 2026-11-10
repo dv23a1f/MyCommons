@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Cysharp.Threading.Tasks;
-using DX.Core.Utility;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -469,20 +468,28 @@ namespace DX.Core.Extensions.UI
     public static class ButtonExtensions
     {
         /// <summary>
-        /// 为 Button 添加点击事件监听 
+        /// 为 Button 添加点击事件监听 ，可传入 CancellationToken 自动取消订阅
+        /// 备注：池化对象传入 cancellationToken 并且手动调用 RemoveAllListeners 后会造成泄露
         /// </summary>
-        public static IDisposable AddListener(this Button button, UnityAction action)
+        public static void AddListener(this Button button, UnityAction action, CancellationToken cancellationToken = default)
         {
             if (button == null) throw new ArgumentNullException(nameof(button));
             if (action == null) throw new ArgumentNullException(nameof(action));
+            if (cancellationToken.IsCancellationRequested) return;
 
             button.onClick.AddListener(action);
 
-            return new ActionDisposable(() =>
+            if (cancellationToken.CanBeCanceled)
             {
-                if (button == null) return;
-                button.onClick.RemoveListener(action);
-            });
+                cancellationToken.Register(() =>
+                {
+                    if (button != null)
+                    {
+                        button.onClick.RemoveListener(action);
+
+                    }
+                });
+            }
         }
 
         /// <summary>
@@ -609,7 +616,7 @@ namespace DX.Core.Extensions.UI
             // 如果 cooldown <= 0，退化为普通监听
             if (cooldown <= 0f)
             {
-                button.AddListener(action);
+                button.AddListener(action, cancellationToken);
                 return;
             }
 
@@ -730,7 +737,7 @@ namespace DX.Core.Extensions.UI
             if (requiredClicks <= 1)
             {
                 // 只有 1 次需求，退化为普通监听
-                button.AddListener(action);
+                button.AddListener(action, cancellationToken);
                 return;
             }
             if (cancellationToken.IsCancellationRequested) return;
