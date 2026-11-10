@@ -19,6 +19,7 @@ namespace DX.Core.Addressable
         {
             _isCatalogInitialized = false;
         }
+		
         // 用于Exists查询之前先进行初始化的标记
         private static bool _isCatalogInitialized = false;
 
@@ -525,7 +526,10 @@ namespace DX.Core.Addressable
         {
             foreach (var handle in _handles.Values)
             {
-                Addressables.Release(handle);
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
             }
             _handles.Clear();
         }
