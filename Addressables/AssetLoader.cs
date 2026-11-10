@@ -521,6 +521,74 @@ namespace DX.Core.Addressable
             }
             _handles.Clear();
         }
+
+        // =========================================================================
+        // 资产存在性检测 (纯同步)
+        // =========================================================================
+
+        private static bool _isCatalogInitialized = false;
+
+        /// <summary>
+        /// 确保寻址目录已加载进内存（如果尚未就绪，通过 WaitForCompletion 同步卡帧初始化）
+        /// </summary>
+        private static void EnsureCatalogInitialized()
+        {
+            if (_isCatalogInitialized) return;
+
+            // 检查 Addressables 底层是否已由其他操作初始化
+            foreach (var _ in Addressables.ResourceLocators)
+            {
+                _isCatalogInitialized = true;
+                return;
+            }
+
+            // 强制阻断初始化目录
+            var handle = Addressables.InitializeAsync();
+            handle.WaitForCompletion();
+            if (handle.IsValid())
+            {
+                Addressables.Release(handle);
+            }
+
+            _isCatalogInitialized = true;
+        }
+
+        /// <summary>
+        /// 检查某资产 Key 是否在 Addressables 中注册且能被加载（纯同步、不加载实际资产）
+        /// </summary>
+        /// <param name="address">资源别名或标签</param>
+        /// <param name="type">资源类型，传 null 则匹配任意类型</param>
+        public static bool Exists(string address, Type type = null)
+        {
+            if (string.IsNullOrEmpty(address)) return false;
+
+            // 1. 确保目录就绪
+            EnsureCatalogInitialized();
+
+            type ??= typeof(Object);
+
+            // 2. 内存字典检索
+            foreach (var locator in Addressables.ResourceLocators)
+            {
+                if (locator.Locate(address, type, out var locations))
+                {
+                    if (locations != null && locations.Count > 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 泛型版本：检查某资产 Key 是否存在且类型匹配（比如是否是 GameObject 或 Sprite）
+        /// </summary>
+        public static bool Exists<T>(string address) where T : Object
+        {
+            return Exists(address, typeof(T));
+        }
     }
 
     //! ========== Debug辅助 ==========
