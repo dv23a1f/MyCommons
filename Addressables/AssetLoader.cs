@@ -420,9 +420,9 @@ namespace DX.Core.Addressable
         }
 
         /// <summary>
-        /// 清理所有缓存的资源（一般在切换大关卡、返回主菜单时调用）
+        /// 清理所有通过 LoadAsset 加载的资源
         /// </summary>
-        public static void ClearAll()
+        public static void UnloadAll()
         {
             foreach (var handle in _handles.Values)
             {
