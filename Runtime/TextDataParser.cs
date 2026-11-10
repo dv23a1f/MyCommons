@@ -241,7 +241,12 @@ namespace DX.Core.TextDriven
                 return val != null ? val.ToString() : match.Value;
             });
         }
-
+		
+        /// <summary>
+        /// 解析整个 TextAsset 文本
+        /// </summary>
+        public static TextDocument ParseDocument(TextAsset textAsset) => ParseDocument(textAsset.text);
+		
         /// <summary>
         /// 解析整个文本文档
         /// </summary>
