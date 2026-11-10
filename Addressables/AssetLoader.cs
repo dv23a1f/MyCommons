@@ -14,6 +14,14 @@ namespace DX.Core.Addressable
 {
     public static class AssetLoader
     {
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void AutoReset()
+        {
+            _isCatalogInitialized = false;
+        }
+        // 用于Exists查询之前先进行初始化的标记
+        private static bool _isCatalogInitialized = false;
+
         // 缓存所有加载过的句柄
         private static readonly Dictionary<string, AsyncOperationHandle> _handles = new();
 
@@ -525,8 +533,6 @@ namespace DX.Core.Addressable
         // =========================================================================
         // 资产存在性检测 (纯同步)
         // =========================================================================
-
-        private static bool _isCatalogInitialized = false;
 
         /// <summary>
         /// 确保寻址目录已加载进内存（如果尚未就绪，通过 WaitForCompletion 同步卡帧初始化）
