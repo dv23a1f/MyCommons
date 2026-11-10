@@ -44,6 +44,8 @@ namespace DX.Core.Utility.Pooling
     {
         /// <summary> 仅提供归还物体的能力 </summary>
         void Release(T element);
+
+        void Release(IEnumerable<T> elements);
     }
     /// <summary>
     /// 对象池实现类
@@ -149,6 +151,15 @@ namespace DX.Core.Utility.Pooling
             return element;
         }
 
+        public void Release(IEnumerable<T> elements)
+        {
+            if (elements == null) return;
+            foreach (var e in elements)
+            {
+                if (e == null) continue;
+                Release(e);
+            }
+        }
         public void Release(T element)
         {
             if (_isDisposed)
