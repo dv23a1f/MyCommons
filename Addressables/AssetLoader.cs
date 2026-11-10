@@ -19,7 +19,7 @@ namespace DX.Core.Addressable
         {
             _isCatalogInitialized = false;
         }
-		
+
         // 用于Exists查询之前先进行初始化的标记
         private static bool _isCatalogInitialized = false;
 
@@ -601,7 +601,92 @@ namespace DX.Core.Addressable
         }
     }
 
-    //! ========== Debug辅助 ==========
+    // =========================================================
+    // 扩展
+    // =========================================================
+
+    public static class AddressablesExtensions
+    {
+        /// <summary>
+        /// 判断 Inspector 中是否真正拖入了资源
+        /// </summary>
+        public static bool IsAssigned(this AssetReference assetRef)
+        {
+            return assetRef != null && assetRef.RuntimeKeyIsValid();
+        }
+
+        /// <summary>
+        /// 将 Handle 绑定到 CancellationToken 生命周期，取消/销毁时自动 Release
+        /// </summary>
+        public static AsyncOperationHandle<T> AutoRelease<T>(
+            this AsyncOperationHandle<T> handle,
+            CancellationToken cancellationToken)
+        {
+            // 如果调用时物体其实已经销毁了，立刻释放并返回
+            if (cancellationToken.IsCancellationRequested)
+            {
+                if (handle.IsValid()) Addressables.Release(handle);
+                return handle;
+            }
+
+            // 注册取消回调（物体销毁时自动触发）
+            cancellationToken.Register(() =>
+            {
+                // 只要 Handle 还合法，就执行释放
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
+            });
+
+            return handle; // 返回自身以支持链式调用
+        }
+
+        public static UniTask<T> LoadAssetAutoReleaseAsync<T>(
+            this AssetReferenceT<T> assetRef,
+            CancellationToken cancellationToken) where T : UnityEngine.Object
+        {
+            //  如果调用时物体已经没了，直接取消
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return UniTask.FromCanceled<T>(cancellationToken);
+            }
+
+            var handle = assetRef.LoadAssetAsync();
+            var utc = new UniTaskCompletionSource<T>();
+
+            // 只要这个 Token 触发（物体销毁），立刻释放资源并打断任务
+            cancellationToken.Register(() =>
+            {
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
+                utc.TrySetCanceled(cancellationToken);
+            });
+
+            handle.Completed += h =>
+            {
+                if (cancellationToken.IsCancellationRequested) return;
+
+                if (h.Status == AsyncOperationStatus.Succeeded)
+                {
+                    utc.TrySetResult(h.Result);
+                }
+                else
+                {
+                    utc.TrySetException(h.OperationException ?? new Exception($"Addressable 加载失败: {assetRef.SubObjectName}"));
+                }
+            };
+
+            return utc.Task;
+        }
+    }
+
+    // =========================================================
+    //  Debug辅助
+    // =========================================================
+
     public static class AssetDebugger
     {
         public static void CheckMemory()
