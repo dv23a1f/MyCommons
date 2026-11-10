@@ -1,13 +1,13 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
-using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.ResourceManagement.ResourceProviders;
-using UnityEngine.SceneManagement;
+using UnityEngine.ResourceManagement.ResourceLocations;
 using Object = UnityEngine.Object;
 
 namespace DX.Core.Addressable
@@ -18,9 +18,17 @@ namespace DX.Core.Addressable
         private static readonly Dictionary<string, AsyncOperationHandle> _handles = new();
 
         /// <summary>
-        /// 加载单一资产 (支持 UniTask 和 取消机制)
+        /// 加载 GameObject 类型的资产
         /// </summary>
-        public static async UniTask<T> LoadAsset<T>(string address, CancellationToken ct = default) where T : Object
+        public static UniTask<GameObject> LoadAsync(string address, CancellationToken ct = default)
+        {
+            return LoadAsync<GameObject>(address, ct);
+        }
+
+        /// <summary>
+        /// 加载单一资产，指定具体类型 (支持 UniTask 和 取消机制)
+        /// </summary>
+        public static async UniTask<T> LoadAsync<T>(string address, CancellationToken ct = default) where T : Object
         {
             // 1. 如果已经加载过，直接返回缓存
             if (_handles.TryGetValue(address, out var existingHandle))
@@ -155,7 +163,15 @@ namespace DX.Core.Addressable
         // =========================================================================
 
         /// <summary>
-        /// 链式调用入口：AssetLoader.Load<T>("Key").OnSuccess(...).Run();
+        /// GameObject 链式调用入口
+        /// </summary>
+        public static AssetLoadChain<GameObject> Load(string address)
+        {
+            return new AssetLoadChain<GameObject>(address);
+        }
+
+        /// <summary>
+        /// 泛型链式调用入口：AssetLoader.Load<T>("Key").OnSuccess(...).Run();
         /// </summary>
         public static AssetLoadChain<T> Load<T>(string address) where T : Object
         {
@@ -211,7 +227,7 @@ namespace DX.Core.Addressable
             {
                 try
                 {
-                    var asset = await AssetLoader.LoadAsset<T>(_address, ct);
+                    var asset = await AssetLoader.LoadAsync<T>(_address, ct);
                     if (asset != null)
                     {
                         _onSuccess?.Invoke(asset);
@@ -356,7 +372,7 @@ namespace DX.Core.Addressable
 
             foreach (var addr in addresses)
             {
-                tasks.Add(LoadAsset<T>(addr, ct));
+                tasks.Add(LoadAsync<T>(addr, ct));
             }
 
             // 并行加载全部
@@ -415,4 +431,91 @@ namespace DX.Core.Addressable
             _handles.Clear();
         }
     }
+
+    //! ========== Debug辅助 ==========
+    public static class AssetDebugger
+    {
+        public static void CheckMemory()
+        {
+            var rm = Addressables.ResourceManager;
+            Type rmType = typeof(UnityEngine.ResourceManagement.ResourceManager);
+
+            // 获取资产缓存表
+            FieldInfo cacheField = rmType.GetField("m_AssetOperationCache", BindingFlags.NonPublic | BindingFlags.Instance);
+            var cache = cacheField?.GetValue(rm) as IDictionary;
+
+            Debug.Log($"<color=cyan>====== 1. Addressables 驻留资产列表 ({cache?.Count ?? 0} 个) ======</color>");
+            if (cache != null)
+            {
+                foreach (DictionaryEntry entry in cache)
+                {
+                    object keyObj = entry.Key;
+                    object op = entry.Value;
+
+                    // 1. 拆解 LocationCacheKey，提取真正的资产名字/地址
+                    string assetAddress = GetAssetAddressFromKey(keyObj);
+
+                    // 2. 获取引用计数
+                    var refProp = op?.GetType().GetProperty("ReferenceCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    int refCount = refProp != null ? (int)refProp.GetValue(op) : -1;
+
+                    // 3. 获取真实加载的对象
+                    var resProp = op?.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    object result = resProp?.GetValue(op);
+
+                    Debug.Log($"➤ <color=green>[Key]: {assetAddress}</color> | 内存对象: <color=white>[{result}]</color> | 引用计数: <color=yellow><b>{refCount}</b></color>");
+                }
+            }
+
+            // 获取场景克隆实例表
+            FieldInfo instField = rmType.GetField("m_TrackedInstanceOperations", BindingFlags.NonPublic | BindingFlags.Instance);
+            var instSet = instField?.GetValue(rm) as IEnumerable;
+
+            Debug.Log($"<color=cyan>====== 2. Addressables 场景实例追踪表 ======</color>");
+            if (instSet != null)
+            {
+                foreach (var instOp in instSet)
+                {
+                    var resProp = instOp?.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    object result = resProp?.GetValue(instOp);
+                    Debug.Log($"➤ 场景存活实例: <color=green>{result}</color>");
+                }
+            }
+            Debug.Log("<color=cyan>=========================================================</color>");
+        }
+
+        // 从 LocationCacheKey 中提取真实 Address 的辅助方法
+        private static string GetAssetAddressFromKey(object keyObj)
+        {
+            if (keyObj == null) return "null";
+
+            Type keyType = keyObj.GetType();
+
+            // 尝试反射获取 LocationCacheKey 内部的 Location 属性或字段
+            IResourceLocation location = null;
+            PropertyInfo locProp = keyType.GetProperty("Location", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (locProp != null)
+            {
+                location = locProp.GetValue(keyObj) as IResourceLocation;
+            }
+
+            if (location == null)
+            {
+                FieldInfo locField = keyType.GetField("m_Location", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (locField != null)
+                {
+                    location = locField.GetValue(keyObj) as IResourceLocation;
+                }
+            }
+
+            // 如果拿到了 location，直接读取它的 PrimaryKey（你在面板里配的 Address 地址）
+            if (location != null)
+            {
+                return $"[{location.PrimaryKey}] (物理路径: {location.InternalId})";
+            }
+
+            return keyObj.ToString();
+        }
+    }
+
 }
