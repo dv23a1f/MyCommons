@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using DX.Core.Utility;
 using UnityEngine;
 
 namespace DX.Core.Message
@@ -103,13 +104,13 @@ namespace DX.Core.Message
                     if (_onEvent != null && Array.IndexOf(_onEvent.GetInvocationList(), listener) != -1)
                     {
                         Debug.LogWarning($"<b><color=red>[Event]</color></b> 重复订阅事件参数类型: <b><color=white>{typeof(T).Name}</color></b>");
-                        return new EventBusDisposable(() => { });
+                        return new ActionDisposable(() => { });
                     }
 
                     _onEvent += listener;
                     if (ShowLog) Debug.Log($"<b><color=green>[Event]</color></b> 新增订阅: <b><color=white>{typeof(T).Name}</color></b>");
 
-                    return new EventBusDisposable(() => Unsubscribe(listener));
+                    return new ActionDisposable(() => Unsubscribe(listener));
                 }
             }
 
@@ -174,22 +175,6 @@ namespace DX.Core.Message
             }
         }
 
-    }
-
-    public class EventBusDisposable : IDisposable
-    {
-        private Action _onDispose;
-
-        public EventBusDisposable(Action onDispose)
-        {
-            _onDispose = onDispose;
-        }
-
-        public void Dispose()
-        {
-            _onDispose?.Invoke();
-            _onDispose = null;
-        }
     }
 
 }

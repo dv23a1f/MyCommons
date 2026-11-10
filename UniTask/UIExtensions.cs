@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using DX.Core.Utility;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -468,31 +469,27 @@ namespace DX.Core.Extensions.UI
     public static class ButtonExtensions
     {
         /// <summary>
-        /// 为 Button 添加带 CancellationToken 的点击事件监听
+        /// 为 Button 添加点击事件监听 
         /// </summary>
-        /// <param name="button">目标按钮</param>
-        /// <param name="action">点击回调</param>
-        /// <param name="cancellationToken">外部取消令牌</param>
-        public static void AddListener(this Button button, UnityAction action, CancellationToken cancellationToken = default)
+        public static IDisposable AddListener(this Button button, UnityAction action)
         {
             if (button == null) throw new ArgumentNullException(nameof(button));
             if (action == null) throw new ArgumentNullException(nameof(action));
-            if (cancellationToken.IsCancellationRequested) return;
 
             button.onClick.AddListener(action);
 
-            // 使用安全 Link：没有额外 Token 时直接用 destroyToken，0 GC
-            CancellationToken token = BindableInternalUtility.LinkTokenSafely(button.destroyCancellationToken, cancellationToken);
-
-            // 移除 registration.Dispose()，纯静态委托消除闭包分配
-            token.Register(() =>
+            return new ActionDisposable(() =>
             {
-                if (button != null)
-                {
-                    button.onClick.RemoveListener(action);
-                }
+                if (button == null) return;
+                button.onClick.RemoveListener(action);
             });
         }
+
+        /// <summary>
+        /// 转发 onClick.RemoveAllListeners() 简化调用
+        /// </summary>
+        public static void RemoveAllListeners(this Button button) => button.onClick.RemoveAllListeners();
+
         /// <summary>
         /// 为 Button 添加带【动态冷却时间】的点击事件监听（冷却时间由回调函数决定）
         /// </summary>
@@ -612,7 +609,7 @@ namespace DX.Core.Extensions.UI
             // 如果 cooldown <= 0，退化为普通监听
             if (cooldown <= 0f)
             {
-                button.AddListener(action, cancellationToken);
+                button.AddListener(action);
                 return;
             }
 
@@ -624,6 +621,7 @@ namespace DX.Core.Extensions.UI
                 ignoreTimeScale,
                 cancellationToken);
         }
+
         /// <summary>
         /// 为 Button 添加带防重锁的异步点击事件监听
         /// </summary>
@@ -732,7 +730,7 @@ namespace DX.Core.Extensions.UI
             if (requiredClicks <= 1)
             {
                 // 只有 1 次需求，退化为普通监听
-                button.AddListener(action, cancellationToken);
+                button.AddListener(action);
                 return;
             }
             if (cancellationToken.IsCancellationRequested) return;

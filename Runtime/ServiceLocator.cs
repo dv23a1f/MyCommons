@@ -105,45 +105,6 @@ namespace DX.Core.Services
         }
 
         /// <summary>
-        /// 当服务就绪时执行回调。
-        /// 若服务已存在则立即同步执行；若未就绪，则等其 Register 时自动触发。
-        /// 支持传调用方的 cancellationToken，防止调用方已被销毁导致幽灵回调。
-        /// </summary>
-        public static void WhenReady<T>(Action<T> onReady, CancellationToken ct = default) where T : class
-        {
-            if (onReady == null || ct.IsCancellationRequested) return;
-
-            // 1. 服务已存在，直接执行并返回
-            if (TryGet<T>(out var service))
-            {
-                onReady(service);
-                return;
-            }
-
-            // 2. 服务未就绪，包装回调以支持清理 ct 注册
-            CancellationTokenRegistration registration = default;
-            Action<T> callback = null;
-
-            callback = s =>
-            {
-                registration.Dispose();
-                onReady(s);
-            };
-
-            ServiceCache<T>.OnReadyCallbacks += callback;
-
-            // 3. 如果在服务就绪前调用方被销毁(ct 触发)，从队列中移除回调并释放自身
-            if (ct.CanBeCanceled)
-            {
-                registration = ct.Register(() =>
-                {
-                    ServiceCache<T>.OnReadyCallbacks -= callback;
-                    registration.Dispose();
-                });
-            }
-        }
-
-        /// <summary>
         /// 手动注销服务
         /// </summary>
         public static void Unregister<T>() where T : class
