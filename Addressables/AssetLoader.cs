@@ -70,6 +70,97 @@ namespace DX.Core.Addressable
         }
 
         // =========================================================================
+        // 同步加载方法(冻结主线程)
+        // =========================================================================
+        /// <summary>
+        /// 立刻加载 GameObject 类型的资源并在完成之前冻结主线程
+        /// </summary>
+        public static GameObject LoadImmediate(string address) => LoadImmediate<GameObject>(address);
+
+        /// <summary>
+        /// 立刻加载指定类型的资源并在完成之前冻结主线程
+        /// </summary>
+        public static T LoadImmediate<T>(string address) where T : Object
+        {
+            if (_handles.TryGetValue(address, out var existingHandle))
+            {
+                if (!existingHandle.IsDone) existingHandle.WaitForCompletion();
+                return existingHandle.Result as T;
+            }
+
+            var handle = Addressables.LoadAssetAsync<T>(address);
+            _handles.Add(address, handle);
+
+            try
+            {
+                handle.WaitForCompletion();
+                if (handle.Status == AsyncOperationStatus.Succeeded)
+                    return handle.Result;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+
+            Debug.LogError($"[AssetLoader] 立即加载资产失败: {address}");
+            Unload(address);
+            return null;
+        }
+
+        /// <summary>
+        /// 立刻实例化 GameObject 类型的资源并在完成之前冻结主线程
+        /// </summary>
+        public static GameObject InstantiateImmediate(string address, Transform parent = null, bool inWorldSpace = false)
+        {
+            var handle = Addressables.InstantiateAsync(address, parent, inWorldSpace);
+            try
+            {
+                handle.WaitForCompletion();
+                if (handle.Status != AsyncOperationStatus.Succeeded || handle.Result == null)
+                {
+                    if (handle.IsValid()) Addressables.Release(handle);
+                    Debug.LogError($"[AssetLoader] 立即实例化失败: {address}");
+                    return null;
+                }
+
+                var instance = handle.Result;
+                instance.GetCancellationTokenOnDestroy().Register(() =>
+                {
+                    if (handle.IsValid()) Addressables.Release(handle);
+                });
+
+                return instance;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                if (handle.IsValid()) Addressables.Release(handle);
+                return null;
+            }
+        }
+        /// <summary>
+        /// 立刻实例化指定类型的资源并在完成之前冻结主线程
+        /// </summary>
+        public static T InstantiateImmediate<T>(string address, Transform parent = null, bool inWorldSpace = false) where T : Object
+        {
+            var instance = InstantiateImmediate(address, parent, inWorldSpace);
+            if (instance == null) return null;
+
+            if (typeof(T) == typeof(GameObject)) return instance as T;
+
+            if (typeof(Component).IsAssignableFrom(typeof(T)))
+            {
+                if (instance.TryGetComponent(typeof(T), out var comp)) return comp as T;
+                Debug.LogError($"[AssetLoader] 未在实例上找到组件: {typeof(T).Name}");
+                Object.Destroy(instance);
+                return null;
+            }
+
+            Object.Destroy(instance);
+            return null;
+        }
+
+        // =========================================================================
         // 加载并实例化
         // =========================================================================
 
