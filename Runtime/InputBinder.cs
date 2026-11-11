@@ -32,10 +32,6 @@ namespace DX.Core.Input
         /// </summary>
         bool IsPressed(string actionName);
 
-        /// <summary>
-        /// 获取原生 InputAction
-        /// </summary>
-        InputAction GetAction(string actionName);
     }
 
     public interface IInputBinder
@@ -65,6 +61,11 @@ namespace DX.Core.Input
         /// 适用于未添加复杂 Interaction（如 Hold/Tap）的普通 Button/PassThrough Action。
         /// </summary>
         void BindHold(string actionName, Action onStarted = null, Action onCanceled = null, CancellationToken ct = default);
+
+        /// <summary>
+        /// 获取原生 InputAction
+        /// </summary>
+        InputAction GetAction(string actionName);
     }
 
     public class InputBinder : MonoBehaviour, IInputService
