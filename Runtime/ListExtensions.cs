@@ -68,30 +68,6 @@ namespace DX.Core.Extensions.List
     public static class ListExtensions
     {
         /// <summary>
-        /// 获取指定元素在只读列表中的索引
-        /// </summary>
-        public static int IndexOf<T>(this IReadOnlyList<T>? list, T item)
-        {
-            if (list == null) return -1;
-
-            if (list is IList<T> concreteList)
-            {
-                return concreteList.IndexOf(item);
-            }
-
-            var comparer = EqualityComparer<T>.Default;
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (comparer.Equals(list[i], item))
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
-
-        /// <summary>
         /// 检查列表或数组是否为null或空
         /// </summary>
         public static bool IsNullOrEmpty<T>(this IEnumerable<T>? source)
@@ -124,19 +100,56 @@ namespace DX.Core.Extensions.List
         }
 
         /// <summary>
-        /// 将列表用指定值填充满，可指定填充大小
+        /// 获取指定元素在只读列表中的索引（补充扩展 IReadOnlyList）
         /// </summary>
-        public static void Fill<T>(this List<T> list, T value, int count)
+        public static int IndexOf<T>(this IReadOnlyList<T>? list, T item)
         {
-            if (list == null) return;
-            list.Clear();
-            if (list.Capacity < count) list.Capacity = count;
+            if (list == null) return -1;
 
-            for (int i = 0; i < count; i++)
+            if (list is IList<T> concreteList)
             {
-                list.Add(value);
+                return concreteList.IndexOf(item);
             }
+
+            var comparer = EqualityComparer<T>.Default;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (comparer.Equals(list[i], item))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
+
+        /// <summary>
+        /// 零 GC 的条件查找（补充扩展 IReadOnlyList）
+        /// </summary>
+        public static T? Find<T>(this IReadOnlyList<T> list, Predicate<T> match)
+        {
+            if (list == null) return default;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (match(list[i])) return list[i];
+            }
+            return default;
+        }
+
+        /// <summary>
+        /// 零 GC 的条件统计
+        /// </summary>
+        public static int CountIf<T>(this IReadOnlyList<T> list, Predicate<T> match)
+        {
+            if (list == null) return 0;
+            int count = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (match(list[i])) count++;
+            }
+            return count;
+        }
+
         /// <summary>
         /// 获取指定条件值最大的元素（0 分配，O(N) 遍历）
         /// 典型应用：寻找距离最近的敌人、寻找血量最少的单位
@@ -193,56 +206,23 @@ namespace DX.Core.Extensions.List
         }
 
         /// <summary>
-        /// 零 GC 的条件查找（补充 IReadOnlyList 的 Find ）
+        /// 将列表用指定值填充满，可指定填充大小
         /// </summary>
-        public static T? Find<T>(this IReadOnlyList<T> list, Predicate<T> match)
+        public static void Fill<T>(this List<T> list, T value, int count)
         {
-            if (list == null) return default;
-            for (int i = 0; i < list.Count; i++)
+            if (list == null) return;
+            list.Clear();
+            if (list.Capacity < count) list.Capacity = count;
+
+            for (int i = 0; i < count; i++)
             {
-                if (match(list[i])) return list[i];
+                list.Add(value);
             }
-            return default;
         }
 
-        /// <summary>
-        /// 零 GC 的条件统计
-        /// </summary>
-        public static int CountIf<T>(this IReadOnlyList<T> list, Predicate<T> match)
-        {
-            if (list == null) return 0;
-            int count = 0;
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (match(list[i])) count++;
-            }
-            return count;
-        }
-        /// <summary>
-        /// O(1) 复杂度的删除（快速删除，不保证原有顺序）
-        /// 适合管理特效、子弹、怪物等不需要严格排序的活跃对象列表
-        /// </summary>
-        public static bool RemoveUnordered<T>(this IList<T> list, T item)
-        {
-            int index = list.IndexOf(item);
-            if (index < 0) return false;
-
-            RemoveAtUnordered(list, index);
-            return true;
-        }
-
-        /// <summary>
-        /// O(1) 复杂度根据索引删除（把末尾移过来覆盖，然后删末尾）
-        /// </summary>
-        public static void RemoveAtUnordered<T>(this IList<T> list, int index)
-        {
-            int lastIndex = list.Count - 1;
-            if (index != lastIndex)
-            {
-                list[index] = list[lastIndex]; // 末尾覆盖当前位置
-            }
-            list.RemoveAt(lastIndex); // 删除末尾，无内存搬运开销
-        }
+        // ==================================
+        // 洗牌扩展
+        // ==================================
         /// <summary>
         /// Fisher-Yates 洗牌算法
         /// </summary>
@@ -302,6 +282,35 @@ namespace DX.Core.Extensions.List
             }
         }
 
+        // ==================================
+        // 删除元素
+        // ==================================
+        /// <summary>
+        /// O(1) 复杂度的删除（快速删除，不保证原有顺序）
+        /// 适合管理特效、子弹、怪物等不需要严格排序的活跃对象列表
+        /// </summary>
+        public static bool RemoveUnordered<T>(this IList<T> list, T item)
+        {
+            int index = list.IndexOf(item);
+            if (index < 0) return false;
+
+            RemoveAtUnordered(list, index);
+            return true;
+        }
+
+        /// <summary>
+        /// O(1) 复杂度根据索引删除（把末尾移过来覆盖，然后删末尾）
+        /// </summary>
+        public static void RemoveAtUnordered<T>(this IList<T> list, int index)
+        {
+            int lastIndex = list.Count - 1;
+            if (index != lastIndex)
+            {
+                list[index] = list[lastIndex]; // 末尾覆盖当前位置
+            }
+            list.RemoveAt(lastIndex); // 删除末尾，无内存搬运开销
+        }
+
         /// <summary>
         /// 从 List 中删除多个元素 (双指针 O(N) 性能)
         /// </summary>
@@ -335,6 +344,9 @@ namespace DX.Core.Extensions.List
             }
         }
 
+        // ==================================
+        // 集合判断
+        // ==================================
         /// <summary>
         /// 验证当前集合是否包含 targets 中的【所有】元素（超集判断）
         /// </summary>
