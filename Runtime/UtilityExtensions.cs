@@ -193,54 +193,56 @@ namespace DX.Core.Extensions
         }
 
         /// <summary>
-        /// 验证 list 是否包含 targets 中的【任意一个】元素
+        /// 验证当前集合是否包含 targets 中的【所有】元素（超集判断）
         /// </summary>
-        public static bool ContainsAny<T>(this List<T> list, IEnumerable<T> targets)
+        public static bool ContainsAll<T>(this IEnumerable<T> source, IEnumerable<T> targets)
         {
-            if (list == null || targets == null || list.Count == 0) return false;
+            if (source == null || targets == null) return false;
 
+            // 【优化分支】：如果 source 本身就是 ISet (如 HashSet)，直接调用原生方法，耗时最短且 0 分配
+            if (source is ISet<T> sourceSet)
+            {
+                return sourceSet.IsSupersetOf(targets);
+            }
+
+            // 通用分支：借助 Unity 的 HashSetPool 获得 O(1) 查找能力
             using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
             {
-                foreach (var item in list)
+                foreach (var item in source)
                 {
                     pooledSet.Add(item);
                 }
-                // 直接调用 C# 原生的重叠判断
-                return pooledSet.Overlaps(targets);
+                return pooledSet.IsSupersetOf(targets);
             }
         }
-        /// <summary>
-        /// 从列表中删除包含在指定集合中的所有元素(0GC)
-        /// </summary>
-        public static void RemoveElements<T>(this List<T> list, IEnumerable<T> elementsToRemove)
-        {
-            if (list == null || elementsToRemove == null || list.Count == 0) return;
 
-            // 从 Unity 的对象池中借用 HashSet
+        /// <summary>
+        /// 验证当前集合是否包含 targets 中的【任意一个】元素（重叠判断）
+        /// </summary>
+        public static bool ContainsAny<T>(this IEnumerable<T> source, IEnumerable<T> targets)
+        {
+            if (source == null || targets == null) return false;
+
+            // 【优化分支 1】：如果 source 是 ISet
+            if (source is ISet<T> sourceSet)
+            {
+                return sourceSet.Overlaps(targets);
+            }
+
+            // 【优化分支 2】：因为交集具有对称性，如果 targets 是 ISet，反过来调也是一样的
+            if (targets is ISet<T> targetSet)
+            {
+                return targetSet.Overlaps(source);
+            }
+
+            // 通用分支：借助 Unity 的 HashSetPool
             using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
             {
-                foreach (var item in elementsToRemove)
+                foreach (var item in source)
                 {
                     pooledSet.Add(item);
                 }
-
-                int writeIndex = 0;
-                for (int readIndex = 0; readIndex < list.Count; readIndex++)
-                {
-                    T currentItem = list[readIndex];
-
-                    if (!pooledSet.Contains(currentItem))
-                    {
-                        list[writeIndex] = currentItem;
-                        writeIndex++;
-                    }
-                }
-
-                int removeCount = list.Count - writeIndex;
-                if (removeCount > 0)
-                {
-                    list.RemoveRange(writeIndex, removeCount);
-                }
+                return pooledSet.Overlaps(targets);
             }
         }
 
