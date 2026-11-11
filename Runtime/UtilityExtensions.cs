@@ -139,56 +139,72 @@ namespace DX.Core.Extensions
         {
             if (list == null || list.Count <= 1) return;
 
-            // 创建一个临时列表来存储 (原始元素, 随机分数)
-            // 使用 Efraimidis-Spirakis 算法: Key = random ^ (1 / weight)
-            var weightedItems = new List<KeyValuePair<T, float>>(list.Count);
-
-            for (int i = 0; i < list.Count; i++)
+            using (ListPool<KeyValuePair<T, float>>.Get(out var weightedItems))
             {
-                T item = list[i];
-                float weight = weightSelector(item);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    T item = list[i];
+                    float weight = weightSelector(item);
 
-                // 防止权重 <= 0 导致数学错误 (除以0或负数幂)
-                // 如果权重为0，给一个极小值，确保它排在最后
-                if (weight <= 0) weight = 0.00001f;
+                    float score;
+                    if (!(weight > 0f))
+                    {
+                        // 权重 <= 0 或 NaN:排到最后
+                        score = float.NegativeInfinity;
+                    }
+                    else
+                    {
+                        float r = UnityEngine.Random.value;
+                        if (r <= 0f) r = float.Epsilon;
+                        score = Mathf.Log(r) / weight;
+                    }
 
-                // UnityEngine.Random.value 返回 [0.0, 1.0]
-                // 为了避免 log(0) 或 pow(0, ...) 的极端边界，可以做一个微小的偏移或重新随机
-                float r = UnityEngine.Random.value;
-                if (r == 0) r = 0.00001f;
+                    weightedItems.Add(new KeyValuePair<T, float>(item, score));
+                }
 
-                // 计算分数
-                float score = Mathf.Pow(r, 1f / weight);
+                weightedItems.Sort((a, b) => b.Value.CompareTo(a.Value));
 
-                weightedItems.Add(new KeyValuePair<T, float>(item, score));
-            }
-
-            // 根据分数降序排列 (分数越大，越靠前)
-            // 使用 List<T>.Sort 进行排序，比较器比较 Value
-            weightedItems.Sort((a, b) => b.Value.CompareTo(a.Value));
-
-            // 将排序后的结果写回原列表
-            for (int i = 0; i < list.Count; i++)
-            {
-                list[i] = weightedItems[i].Key;
+                for (int i = 0; i < weightedItems.Count; i++)
+                {
+                    list[i] = weightedItems[i].Key;
+                }
             }
         }
         //!------------------------------------------------------
         /// <summary>
-        /// 验证 list 是否包含 targets 中的【所有】元素
+        /// 从 List 中删除多个元素
         /// </summary>
-        public static bool ContainsAll<T>(this List<T> list, IEnumerable<T> targets)
+        public static void RemoveElements<T>(this List<T> list, IEnumerable<T> elementsToRemove)
         {
-            if (list == null || targets == null) return false;
+            if (list == null || elementsToRemove == null || list.Count == 0) return;
 
+            // 1. 从 Unity 的对象池中借用 HashSet
             using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
             {
-                foreach (var item in list)
+
+                foreach (var item in elementsToRemove)
                 {
                     pooledSet.Add(item);
                 }
-                // 直接调用 C# 原生的超集判断
-                return pooledSet.IsSupersetOf(targets);
+
+                int writeIndex = 0;
+                for (int readIndex = 0; readIndex < list.Count; readIndex++)
+                {
+                    T currentItem = list[readIndex];
+                    // 如果不需要删除，就留下来
+                    if (!pooledSet.Contains(currentItem))
+                    {
+                        list[writeIndex] = currentItem;
+                        writeIndex++;
+                    }
+                }
+
+                // 一次性截断尾部不再需要的元素
+                int removeCount = list.Count - writeIndex;
+                if (removeCount > 0)
+                {
+                    list.RemoveRange(writeIndex, removeCount);
+                }
             }
         }
 
