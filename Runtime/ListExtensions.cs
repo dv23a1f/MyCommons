@@ -3,7 +3,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace DX.Core.Extensions
+namespace DX.Core.Extensions.List
 {
 
     /// <summary>
@@ -121,6 +121,102 @@ namespace DX.Core.Extensions
         {
             if (list is null) return false;
             return (uint)index < (uint)list.Count;
+        }
+
+        /// <summary>
+        /// 将列表用指定值填充满，可指定填充大小
+        /// </summary>
+        public static void Fill<T>(this List<T> list, T value, int count)
+        {
+            if (list == null) return;
+            list.Clear();
+            if (list.Capacity < count) list.Capacity = count;
+
+            for (int i = 0; i < count; i++)
+            {
+                list.Add(value);
+            }
+        }
+        /// <summary>
+        /// 获取指定条件值最大的元素（0 分配，O(N) 遍历）
+        /// 典型应用：寻找距离最近的敌人、寻找血量最少的单位
+        /// </summary>
+        public static T? MaxBy<T, TKey>(this IReadOnlyList<T> list, Func<T, TKey> selector) where TKey : IComparable<TKey>
+        {
+            if (list == null || list.Count == 0) return default;
+
+            T maxItem = list[0];
+            TKey maxValue = selector(maxItem);
+
+            for (int i = 1; i < list.Count; i++)
+            {
+                T item = list[i];
+                TKey val = selector(item);
+                if (val.CompareTo(maxValue) > 0)
+                {
+                    maxValue = val;
+                    maxItem = item;
+                }
+            }
+            return maxItem;
+        }
+
+        public static T? MinBy<T, TKey>(this IReadOnlyList<T> list, Func<T, TKey> selector) where TKey : IComparable<TKey>
+        {
+            if (list == null || list.Count == 0) return default;
+
+            T minItem = list[0];
+            TKey minValue = selector(minItem);
+
+            for (int i = 1; i < list.Count; i++)
+            {
+                T item = list[i];
+                TKey val = selector(item);
+                if (val.CompareTo(minValue) < 0)
+                {
+                    minValue = val;
+                    minItem = item;
+                }
+            }
+            return minItem;
+        }
+        /// <summary>
+        /// 环状安全索引（向前翻页、向后翻页永远不会越界）
+        /// 例如 count 为 5: index=-1 会返回 4; index=5 会返回 0
+        /// </summary>
+        public static T? GetAtLooped<T>(this IReadOnlyList<T> list, int index)
+        {
+            if (list == null || list.Count == 0) return default;
+            int count = list.Count;
+            int wrappedIndex = (index % count + count) % count; // 解决负数取模依然为负的问题
+            return list[wrappedIndex];
+        }
+
+        /// <summary>
+        /// 零 GC 的条件查找（补充 IReadOnlyList 的 Find ）
+        /// </summary>
+        public static T? Find<T>(this IReadOnlyList<T> list, Predicate<T> match)
+        {
+            if (list == null) return default;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (match(list[i])) return list[i];
+            }
+            return default;
+        }
+
+        /// <summary>
+        /// 零 GC 的条件统计
+        /// </summary>
+        public static int CountIf<T>(this IReadOnlyList<T> list, Predicate<T> match)
+        {
+            if (list == null) return 0;
+            int count = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (match(list[i])) count++;
+            }
+            return count;
         }
 
         /// <summary>
