@@ -218,7 +218,31 @@ namespace DX.Core.Extensions.List
             }
             return count;
         }
+        /// <summary>
+        /// O(1) 复杂度的删除（快速删除，不保证原有顺序）
+        /// 适合管理特效、子弹、怪物等不需要严格排序的活跃对象列表
+        /// </summary>
+        public static bool RemoveUnordered<T>(this IList<T> list, T item)
+        {
+            int index = list.IndexOf(item);
+            if (index < 0) return false;
 
+            RemoveAtUnordered(list, index);
+            return true;
+        }
+
+        /// <summary>
+        /// O(1) 复杂度根据索引删除（把末尾移过来覆盖，然后删末尾）
+        /// </summary>
+        public static void RemoveAtUnordered<T>(this IList<T> list, int index)
+        {
+            int lastIndex = list.Count - 1;
+            if (index != lastIndex)
+            {
+                list[index] = list[lastIndex]; // 末尾覆盖当前位置
+            }
+            list.RemoveAt(lastIndex); // 删除末尾，无内存搬运开销
+        }
         /// <summary>
         /// Fisher-Yates 洗牌算法
         /// </summary>
