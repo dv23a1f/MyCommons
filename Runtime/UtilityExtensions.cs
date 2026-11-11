@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnityEngine;
+using UnityEngine.Pool;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
 
@@ -173,7 +174,40 @@ namespace DX.Core.Extensions
             }
         }
         //!------------------------------------------------------
+        /// <summary>
+        /// 从列表中删除包含在指定集合中的所有元素(0GC)
+        /// </summary>
+        public static void RemoveElements<T>(this List<T> list, IEnumerable<T> elementsToRemove)
+        {
+            if (list == null || elementsToRemove == null || list.Count == 0) return;
 
+            // 从 Unity 的对象池中借用 HashSet
+            using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
+            {
+                foreach (var item in elementsToRemove)
+                {
+                    pooledSet.Add(item);
+                }
+
+                int writeIndex = 0;
+                for (int readIndex = 0; readIndex < list.Count; readIndex++)
+                {
+                    T currentItem = list[readIndex];
+
+                    if (!pooledSet.Contains(currentItem))
+                    {
+                        list[writeIndex] = currentItem;
+                        writeIndex++;
+                    }
+                }
+
+                int removeCount = list.Count - writeIndex;
+                if (removeCount > 0)
+                {
+                    list.RemoveRange(writeIndex, removeCount);
+                }
+            }
+        }
     }
 
     //# List取随机
