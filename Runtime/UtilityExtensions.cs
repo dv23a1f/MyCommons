@@ -175,6 +175,41 @@ namespace DX.Core.Extensions
         }
         //!------------------------------------------------------
         /// <summary>
+        /// 验证 list 是否包含 targets 中的【所有】元素
+        /// </summary>
+        public static bool ContainsAll<T>(this List<T> list, IEnumerable<T> targets)
+        {
+            if (list == null || targets == null) return false;
+
+            using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
+            {
+                foreach (var item in list)
+                {
+                    pooledSet.Add(item);
+                }
+                // 直接调用 C# 原生的超集判断
+                return pooledSet.IsSupersetOf(targets);
+            }
+        }
+
+        /// <summary>
+        /// 验证 list 是否包含 targets 中的【任意一个】元素
+        /// </summary>
+        public static bool ContainsAny<T>(this List<T> list, IEnumerable<T> targets)
+        {
+            if (list == null || targets == null || list.Count == 0) return false;
+
+            using (HashSetPool<T>.Get(out HashSet<T> pooledSet))
+            {
+                foreach (var item in list)
+                {
+                    pooledSet.Add(item);
+                }
+                // 直接调用 C# 原生的重叠判断
+                return pooledSet.Overlaps(targets);
+            }
+        }
+        /// <summary>
         /// 从列表中删除包含在指定集合中的所有元素(0GC)
         /// </summary>
         public static void RemoveElements<T>(this List<T> list, IEnumerable<T> elementsToRemove)
@@ -208,6 +243,8 @@ namespace DX.Core.Extensions
                 }
             }
         }
+
+        //!------------------------------------------------------
     }
 
     //# List取随机
