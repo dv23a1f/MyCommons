@@ -11,26 +11,38 @@ namespace DX.Core.Extensions.List
     /// </summary>
     internal static class LocalListPool<T>
     {
+        private const int MaxCapacity = 256; // 超过则不回收
+        private const int MaxPooled = 16;    // 每线程最多缓存的列表数
+
         [ThreadStatic]
-        private static List<T>? _cachedList;
+        private static Stack<List<T>>? _pool;
 
         public readonly struct PooledObject : IDisposable
         {
-            public readonly List<T> List;
-
-            public PooledObject(List<T> list) => List = list;
+            private readonly List<T>? _list;
+            public PooledObject(List<T> list) => _list = list;
 
             public void Dispose()
             {
-                List.Clear();
-                _cachedList = List;
+                var list = _list;
+                if (list == null) return;
+
+                list.Clear();
+                if (list.Capacity > MaxCapacity) return; // 直接丢弃，不再分配新数组
+
+                var pool = _pool ??= new Stack<List<T>>();
+#if DEBUG
+                if (pool.Contains(list))
+                    throw new InvalidOperationException("LocalListPool: 同一个 List 被重复归还");
+#endif
+                if (pool.Count < MaxPooled) pool.Push(list);
             }
         }
 
         public static PooledObject Get(out List<T> list)
         {
-            list = _cachedList ?? new List<T>();
-            _cachedList = null;
+            var pool = _pool;
+            list = (pool != null && pool.Count > 0) ? pool.Pop() : new List<T>();
             list.Clear();
             return new PooledObject(list);
         }
@@ -41,26 +53,40 @@ namespace DX.Core.Extensions.List
     /// </summary>
     internal static class LocalHashSetPool<T>
     {
+        private const int MaxCount = 256;   // 归还时元素数超过则丢弃
+        private const int MaxPooled = 16;   // 每线程最多缓存的集合数
+
         [ThreadStatic]
-        private static HashSet<T>? _cachedSet;
+        private static Stack<HashSet<T>>? _pool;
 
         public readonly struct PooledObject : IDisposable
         {
-            public readonly HashSet<T> Set;
-
-            public PooledObject(HashSet<T> set) => Set = set;
+            private readonly HashSet<T>? _set;
+            public PooledObject(HashSet<T> set) => _set = set;
 
             public void Dispose()
             {
-                Set.Clear();
-                _cachedSet = Set;
+                var set = _set;
+                if (set == null) return;
+
+                // 必须在 Clear 之前取 Count
+                bool tooLarge = set.Count > MaxCount;
+                set.Clear();
+                if (tooLarge) return; // 丢弃，交给 GC
+
+                var pool = _pool ??= new Stack<HashSet<T>>();
+#if DEBUG
+                if (pool.Contains(set))
+                    throw new InvalidOperationException("LocalHashSetPool: 同一个 HashSet 被重复归还");
+#endif
+                if (pool.Count < MaxPooled) pool.Push(set);
             }
         }
 
         public static PooledObject Get(out HashSet<T> set)
         {
-            set = _cachedSet ?? new HashSet<T>();
-            _cachedSet = null;
+            var pool = _pool;
+            set = (pool != null && pool.Count > 0) ? pool.Pop() : new HashSet<T>();
             set.Clear();
             return new PooledObject(set);
         }
@@ -227,7 +253,7 @@ namespace DX.Core.Extensions.List
         //# ==================================
 
         /// <summary>
-        /// 生成一个支持在原生 foreach 中安全修改（增/删/改），非池化，有GC
+        /// 生成一个支持在原生 foreach 中安全修改（增/删/改）原集合的零 GC 包装器
         /// </summary>
         public static SafeListEnumerable<T> AsSafe<T>(this IList<T> list)
         {
@@ -236,27 +262,34 @@ namespace DX.Core.Extensions.List
 
         public readonly struct SafeListEnumerable<T>
         {
-            private readonly IList<T>? _source;
-            public SafeListEnumerable(IList<T>? source) => _source = source;
+            private readonly IList<T> _source;
+            public SafeListEnumerable(IList<T> source) => _source = source;
 
             public SafeListEnumerator<T> GetEnumerator() => new SafeListEnumerator<T>(_source);
         }
 
-        public struct SafeListEnumerator<T>
+        public struct SafeListEnumerator<T> : IDisposable
         {
+            private LocalListPool<T>.PooledObject _poolHandle;
             private readonly List<T>? _snapshot;
             private int _index;
 
-            public SafeListEnumerator(IList<T>? source)
+            public SafeListEnumerator(IList<T> source)
             {
                 _index = -1;
                 if (source == null || source.Count == 0)
                 {
+                    _poolHandle = default;
                     _snapshot = null;
                     return;
                 }
 
-                _snapshot = new List<T>(source);
+                // 借出池化列表并拷贝快照
+                _poolHandle = LocalListPool<T>.Get(out _snapshot);
+                for (int i = 0; i < source.Count; i++)
+                {
+                    _snapshot.Add(source[i]);
+                }
             }
 
             public T Current => _snapshot![_index];
@@ -267,20 +300,37 @@ namespace DX.Core.Extensions.List
                 return ++_index < _snapshot.Count;
             }
 
+            // foreach 结束（包括中途 break / return / 抛异常）时，C# 编译器会自动调用此 Dispose 归还对象池
+            public void Dispose()
+            {
+                if (_snapshot != null)
+                {
+                    _poolHandle.Dispose();
+                }
+            }
         }
 
         /// <summary>
-        /// 安全遍历列表，非池化，有GC（支持在内部任意调用原列表的 Remove / Add / Clear）
+        /// 安全遍历列表（内部使用池化快照，支持在内部任意调用原列表的 Remove / Add / Clear）
         /// </summary>
-        public static void ForEachSafe<T>(this IList<T>? list, Action<T> action)
+        public static void ForEachSafe<T>(this IList<T> list, Action<T> action)
         {
             if (list == null || list.Count == 0 || action == null) return;
 
-            var snapshot = new List<T>(list);
-
-            for (int i = 0; i < snapshot.Count; i++)
+            // 从线程静态池中借用一个临时列表，0 GC
+            using (LocalListPool<T>.Get(out var snapshot))
             {
-                action(snapshot[i]);
+                // 1. 制作当前帧的快照
+                for (int i = 0; i < list.Count; i++)
+                {
+                    snapshot.Add(list[i]);
+                }
+
+                // 2. 遍历快照（此时在 action 内部随便修改原 list 都不会影响遍历）
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    action(snapshot[i]);
+                }
             }
         }
 
