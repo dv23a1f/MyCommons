@@ -23,7 +23,7 @@ namespace DX.Core.Extensions.List
             public void Dispose()
             {
                 List.Clear();
-                _cachedList = List; // 归还到当前线程缓存
+                _cachedList = List;
             }
         }
 
@@ -31,7 +31,7 @@ namespace DX.Core.Extensions.List
         {
             list = _cachedList ?? new List<T>();
             _cachedList = null;
-            list.Clear(); // <-- 加这一句防御性清空，即便有残留数据也绝不会出 Bug
+            list.Clear();
             return new PooledObject(list);
         }
     }
@@ -53,7 +53,7 @@ namespace DX.Core.Extensions.List
             public void Dispose()
             {
                 Set.Clear();
-                _cachedSet = Set; // 归还
+                _cachedSet = Set;
             }
         }
 
@@ -61,6 +61,7 @@ namespace DX.Core.Extensions.List
         {
             set = _cachedSet ?? new HashSet<T>();
             _cachedSet = null;
+            set.Clear();
             return new PooledObject(set);
         }
     }
@@ -226,7 +227,7 @@ namespace DX.Core.Extensions.List
         //# ==================================
 
         /// <summary>
-        /// 生成一个支持在原生 foreach 中安全修改（增/删/改）原集合的零 GC 包装器
+        /// 生成一个支持在原生 foreach 中安全修改（增/删/改），非池化，有GC
         /// </summary>
         public static SafeListEnumerable<T> AsSafe<T>(this IList<T> list)
         {
@@ -235,34 +236,27 @@ namespace DX.Core.Extensions.List
 
         public readonly struct SafeListEnumerable<T>
         {
-            private readonly IList<T> _source;
-            public SafeListEnumerable(IList<T> source) => _source = source;
+            private readonly IList<T>? _source;
+            public SafeListEnumerable(IList<T>? source) => _source = source;
 
             public SafeListEnumerator<T> GetEnumerator() => new SafeListEnumerator<T>(_source);
         }
 
-        public struct SafeListEnumerator<T> : IDisposable
+        public struct SafeListEnumerator<T>
         {
-            private LocalListPool<T>.PooledObject _poolHandle;
             private readonly List<T>? _snapshot;
             private int _index;
 
-            public SafeListEnumerator(IList<T> source)
+            public SafeListEnumerator(IList<T>? source)
             {
                 _index = -1;
                 if (source == null || source.Count == 0)
                 {
-                    _poolHandle = default;
                     _snapshot = null;
                     return;
                 }
 
-                // 借出池化列表并拷贝快照
-                _poolHandle = LocalListPool<T>.Get(out _snapshot);
-                for (int i = 0; i < source.Count; i++)
-                {
-                    _snapshot.Add(source[i]);
-                }
+                _snapshot = new List<T>(source);
             }
 
             public T Current => _snapshot![_index];
@@ -273,36 +267,20 @@ namespace DX.Core.Extensions.List
                 return ++_index < _snapshot.Count;
             }
 
-            // foreach 结束（包括中途 break / return / 抛异常）时，C# 编译器会自动调用此 Dispose 归还对象池
-            public void Dispose()
-            {
-                if (_snapshot != null)
-                {
-                    _poolHandle.Dispose();
-                }
-            }
         }
+
         /// <summary>
-        /// 安全遍历列表（内部使用池化快照，支持在内部任意调用原列表的 Remove / Add / Clear）
+        /// 安全遍历列表，非池化，有GC（支持在内部任意调用原列表的 Remove / Add / Clear）
         /// </summary>
-        public static void ForEachSafe<T>(this IList<T> list, Action<T> action)
+        public static void ForEachSafe<T>(this IList<T>? list, Action<T> action)
         {
             if (list == null || list.Count == 0 || action == null) return;
 
-            // 从线程静态池中借用一个临时列表，0 GC
-            using (LocalListPool<T>.Get(out var snapshot))
-            {
-                // 1. 制作当前帧的快照
-                for (int i = 0; i < list.Count; i++)
-                {
-                    snapshot.Add(list[i]);
-                }
+            var snapshot = new List<T>(list);
 
-                // 2. 遍历快照（此时在 action 内部随便修改原 list 都不会影响遍历）
-                for (int i = 0; i < snapshot.Count; i++)
-                {
-                    action(snapshot[i]);
-                }
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                action(snapshot[i]);
             }
         }
 
