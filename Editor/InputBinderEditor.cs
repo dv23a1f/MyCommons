@@ -5,7 +5,7 @@ using UnityEngine.InputSystem;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace DX.Core.Input
+namespace DX.Core.EditorScripts.Input
 {
     [CustomEditor(typeof(InputBinder))]
     public class InputBinderEditor : Editor

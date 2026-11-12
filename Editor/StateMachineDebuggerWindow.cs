@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using DX.Core.ReactiveStateMachine;
 
-namespace DX.Core.ReactiveStateMachine.Editor
+namespace DX.Core.EditorScripts.ReactiveStateMachine
 {
     public class StateMachineDebuggerWindow : EditorWindow
     {
