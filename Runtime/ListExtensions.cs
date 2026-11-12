@@ -128,6 +128,31 @@ namespace DX.Core.Extensions.List
         }
 
         /// <summary>
+        /// 安全获取指定索引的元素，若索引越界或列表为 null，则返回类型默认值 (null / 0 / false 等)
+        /// </summary>
+        public static T? GetOrDefault<T>(this IReadOnlyList<T>? list, int index)
+        {
+            // 利用无符号强转：(uint)index < (uint)list.Count 可以一条指令同时校验 index >= 0 和 index < Count
+            if (list != null && (uint)index < (uint)list.Count)
+            {
+                return list[index];
+            }
+            return default;
+        }
+
+        /// <summary>
+        /// 安全获取指定索引的元素，若索引越界或列表为 null，返回你指定的自定义默认值
+        /// </summary>
+        public static T GetOrDefault<T>(this IReadOnlyList<T>? list, int index, T defaultValue)
+        {
+            if (list != null && (uint)index < (uint)list.Count)
+            {
+                return list[index];
+            }
+            return defaultValue;
+        }
+
+        /// <summary>
         /// 获取指定元素在只读列表中的索引（补充扩展 IReadOnlyList）
         /// </summary>
         public static int IndexOf<T>(this IReadOnlyList<T>? list, T item)
