@@ -6,6 +6,7 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
+using DX.Core.ReactiveStateMachine;
 
 namespace DX.Core.EditorScripts.ReactiveStateMachine
 {
