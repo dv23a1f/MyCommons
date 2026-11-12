@@ -1,5 +1,5 @@
 /*
- * SmartAssetOverwriter.cs - 100% 稳定拦截版
+ * SmartAssetOverwriter.cs - 完美支持外部拖入覆盖，且绝不误触 Ctrl+D
  * 放置路径: Assets/Editor/SmartAssetOverwriter.cs
  */
 
@@ -12,24 +12,21 @@ using UnityEngine;
 
 public class SmartAssetOverwriter : AssetPostprocessor
 {
-    // 递归防重入锁：防止本脚本自己删除/刷新文件时，再次触发自身
     private static bool _isProcessing = false;
 
-    // 排除安全敏感文件（这些由 Unity 自身维护引用树）
     private static readonly HashSet<string> ExcludedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".prefab", ".unity", ".meta", ".asset"
     };
 
-    // 智能匹配末尾的数字后缀（支持 "icon 1", "icon1", "icon(1)", "icon_1" 等）
     private static readonly Regex DuplicatePattern = new Regex(@"^(.*?)(?:[\s_\-\(]*|\s*)(\d+)\)?$");
 
     private class OverwriteTask
     {
-        public string DuplicateAssetPath; // Assets/.../xxx 1.ext
-        public string OriginalAssetPath;  // Assets/.../xxx.ext
-        public string DuplicateFullPath;  // 绝对物理路径
-        public string OriginalFullPath;   // 绝对物理路径
+        public string DuplicateAssetPath;
+        public string OriginalAssetPath; 
+        public string DuplicateFullPath;  
+        public string OriginalFullPath;   
         public string NewFileName;
         public string OriginalFileName;
     }
@@ -40,11 +37,26 @@ public class SmartAssetOverwriter : AssetPostprocessor
         string[] movedAssets,
         string[] movedFromAssetPaths)
     {
-        // 防重入
         if (_isProcessing) return;
         if (importedAssets == null || importedAssets.Length == 0) return;
 
-        // 绝对路径基准（项目根目录）
+        // 【关键点 1】：检测是否是由外部拖拽引发的操作
+        // 如果是 Ctrl+D 复制、右键 Duplicate、代码生成等操作，DragAndDrop.paths 长度必为 0
+        if (DragAndDrop.paths == null || DragAndDrop.paths.Length == 0)
+        {
+            return;
+        }
+
+        // 收集所有拖入的外部源文件的文件名集合（用于二次精准匹配）
+        HashSet<string> draggedSourceFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in DragAndDrop.paths)
+        {
+            if (!string.IsNullOrEmpty(path))
+            {
+                draggedSourceFileNames.Add(Path.GetFileName(path));
+            }
+        }
+
         string projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
         List<OverwriteTask> tasks = new List<OverwriteTask>();
 
@@ -66,13 +78,19 @@ public class SmartAssetOverwriter : AssetPostprocessor
                 if (string.IsNullOrEmpty(baseName)) continue;
 
                 string originalFileName = baseName + ext;
-                string originalUnityPath = $"{directory}/{originalFileName}";
 
-                // 统一使用项目根目录 + 相对路径计算绝对物理路径，永不失效
+                // 【关键点 2】：双重确认
+                // 只有当“拖入的源文件名”正好等于我们想要覆盖的“原文件名”时，才确认这是覆盖意图
+                // 彻底杜绝任何形式的误判
+                if (!draggedSourceFileNames.Contains(originalFileName))
+                {
+                    continue;
+                }
+
+                string originalUnityPath = $"{directory}/{originalFileName}";
                 string originalFullPath = $"{projectRoot}/{originalUnityPath}";
                 string duplicateFullPath = $"{projectRoot}/{unityPath}";
 
-                // 物理磁盘检测：如果原文件确实存在，且不是自己
                 if (File.Exists(originalFullPath) && !string.Equals(duplicateFullPath, originalFullPath, StringComparison.OrdinalIgnoreCase))
                 {
                     tasks.Add(new OverwriteTask
@@ -90,8 +108,6 @@ public class SmartAssetOverwriter : AssetPostprocessor
 
         if (tasks.Count == 0) return;
 
-        // 【核心改进】：不再使用 delayCall，而是直接同步阻断式处理！
-        // 这样可以确保在 Unity 尝试触发 Domain Reload（代码编译重载）之前就完成覆盖和清理
         try
         {
             _isProcessing = true;
@@ -131,17 +147,17 @@ public class SmartAssetOverwriter : AssetPostprocessor
                     "全部覆盖"    // 2
                 );
 
-                if (option == 0) // 覆盖单个
+                if (option == 0)
                 {
                     doOverwrite = true;
                 }
-                else if (option == 2) // 全部覆盖
+                else if (option == 2)
                 {
                     doOverwrite = true;
                     applyToAll = true;
                     overwriteAll = true;
                 }
-                else // 1: 保留副本
+                else
                 {
                     doOverwrite = false;
                     if (tasks.Count > 1)
@@ -166,17 +182,11 @@ public class SmartAssetOverwriter : AssetPostprocessor
     {
         try
         {
-            // 1. 去除只读标记（适配版本控制）
             var fileInfo = new FileInfo(task.OriginalFullPath);
             if (fileInfo.IsReadOnly) fileInfo.IsReadOnly = false;
 
-            // 2. 覆盖物理内容（保留原始文件的 .meta 和 GUID）
             File.Copy(task.DuplicateFullPath, task.OriginalFullPath, overwrite: true);
-
-            // 3. 删除临时副本资源及它的 meta
             AssetDatabase.DeleteAsset(task.DuplicateAssetPath);
-
-            // 4. 强制通知 Unity 刷新原文件
             AssetDatabase.ImportAsset(task.OriginalAssetPath, ImportAssetOptions.ForceUpdate);
 
             Debug.Log($"<color=#00FF7F><b>[成功覆盖]</b></color> 已覆盖原文件: {task.OriginalAssetPath}");
