@@ -8,7 +8,7 @@ using DX.Core.ReactiveStateMachine;
 
 namespace DX.Core.EditorScripts.ReactiveStateMachine
 {
-    public class StateMachineDebuggerWindow : EditorWindow
+    internal class StateMachineDebuggerWindow : EditorWindow
     {
         // === 数据结构精简 ===
         private class FSMTargetInfo

@@ -4,11 +4,12 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
 using System.Linq;
+using DX.Core.Input;
 
 namespace DX.Core.EditorScripts.Input
 {
     [CustomEditor(typeof(InputBinder))]
-    public class InputBinderEditor : Editor
+    internal class InputBinderEditor : Editor
     {
         private SerializedProperty _assetTemplateProp;
         private SerializedProperty _defaultActionMapProp;

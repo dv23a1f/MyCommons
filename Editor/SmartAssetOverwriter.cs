@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace DX.Core.EditorScripts
 {
-    public class SmartAssetOverwriter : AssetPostprocessor
+    internal class SmartAssetOverwriter : AssetPostprocessor
     {
         private static bool _isProcessing = false;
 
