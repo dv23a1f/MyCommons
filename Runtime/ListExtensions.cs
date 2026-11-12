@@ -67,6 +67,7 @@ namespace DX.Core.Extensions.List
 
     public static class ListExtensions
     {
+
         /// <summary>
         /// 检查列表或数组是否为null或空
         /// </summary>
@@ -220,71 +221,9 @@ namespace DX.Core.Extensions.List
             }
         }
 
-        // ==================================
-        // 洗牌扩展
-        // ==================================
-        /// <summary>
-        /// Fisher-Yates 洗牌算法
-        /// </summary>
-        public static void Shuffle<T>(this IList<T> source, Random? rng = null)
-        {
-            if (source == null || source.Count <= 1) return;
-            rng ??= ThreadSafeRandom.Instance;
-
-            for (int i = source.Count - 1; i > 0; i--)
-            {
-                int j = rng.Next(0, i + 1);
-                (source[i], source[j]) = (source[j], source[i]);
-            }
-        }
-
-        /// <summary>
-        /// 按照权重对List进行洗牌 (加权不放回采样)
-        /// 权重越大，排在前面的概率越高。
-        /// 算法复杂度: O(N log N)
-        /// </summary>
-        /// <param name="weightSelector">获取权重的委托 (返回值必须大于0)</param>
-        public static void WeightedShuffle<T>(this IList<T> list, Func<T, float> weightSelector, Random? rng = null)
-        {
-            if (list == null || list.Count <= 1) return;
-            rng ??= ThreadSafeRandom.Instance;
-
-            using (LocalListPool<KeyValuePair<T, double>>.Get(out var weightedItems))
-            {
-                for (int i = 0; i < list.Count; i++)
-                {
-                    T item = list[i];
-                    float weight = weightSelector(item);
-
-                    double score;
-                    if (!(weight > 0f))
-                    {
-                        score = double.NegativeInfinity;
-                    }
-                    else
-                    {
-                        double r = rng.NextDouble();
-                        if (r <= 0.0) r = double.Epsilon;
-                        // score = log(r) / weight
-                        score = Math.Log(r) / weight;
-                    }
-
-                    weightedItems.Add(new KeyValuePair<T, double>(item, score));
-                }
-
-                // 降序排序
-                weightedItems.Sort((a, b) => b.Value.CompareTo(a.Value));
-
-                for (int i = 0; i < weightedItems.Count; i++)
-                {
-                    list[i] = weightedItems[i].Key;
-                }
-            }
-        }
-
-        // ==================================
-        // 删除元素
-        // ==================================
+        //# ==================================
+        //# 安全遍历
+        //# ==================================
 
         /// <summary>
         /// 生成一个支持在原生 foreach 中安全修改（增/删/改）原集合的零 GC 包装器
@@ -367,6 +306,10 @@ namespace DX.Core.Extensions.List
             }
         }
 
+        //# ==================================
+        //# 删除元素
+        //# ==================================
+
         /// <summary>
         /// O(1) 复杂度的删除（快速删除，不保证原有顺序）
         /// 适合管理特效、子弹、怪物等不需要严格排序的活跃对象列表
@@ -426,9 +369,10 @@ namespace DX.Core.Extensions.List
             }
         }
 
-        // ==================================
-        // 集合判断
-        // ==================================
+        //# ==================================
+        //# 集合判断
+        //# ==================================
+
         /// <summary>
         /// 验证当前集合是否包含 targets 中的【所有】元素（超集判断）
         /// </summary>
@@ -471,6 +415,7 @@ namespace DX.Core.Extensions.List
                 return pooledSet.Overlaps(targets);
             }
         }
+
     }
 
     public static class ListRandomExtensions
@@ -657,9 +602,71 @@ namespace DX.Core.Extensions.List
 
             return result;
         }
+
+        //# ==================================
+        //# 洗牌扩展
+        //# ==================================
+        /// <summary>
+        /// Fisher-Yates 洗牌算法
+        /// </summary>
+        public static void Shuffle<T>(this IList<T> source, Random? rng = null)
+        {
+            if (source == null || source.Count <= 1) return;
+            rng ??= ThreadSafeRandom.Instance;
+
+            for (int i = source.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(0, i + 1);
+                (source[i], source[j]) = (source[j], source[i]);
+            }
+        }
+
+        /// <summary>
+        /// 按照权重对List进行洗牌 (加权不放回采样)
+        /// 权重越大，排在前面的概率越高。
+        /// 算法复杂度: O(N log N)
+        /// </summary>
+        /// <param name="weightSelector">获取权重的委托 (返回值必须大于0)</param>
+        public static void WeightedShuffle<T>(this IList<T> list, Func<T, float> weightSelector, Random? rng = null)
+        {
+            if (list == null || list.Count <= 1) return;
+            rng ??= ThreadSafeRandom.Instance;
+
+            using (LocalListPool<KeyValuePair<T, double>>.Get(out var weightedItems))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    T item = list[i];
+                    float weight = weightSelector(item);
+
+                    double score;
+                    if (!(weight > 0f))
+                    {
+                        score = double.NegativeInfinity;
+                    }
+                    else
+                    {
+                        double r = rng.NextDouble();
+                        if (r <= 0.0) r = double.Epsilon;
+                        // score = log(r) / weight
+                        score = Math.Log(r) / weight;
+                    }
+
+                    weightedItems.Add(new KeyValuePair<T, double>(item, score));
+                }
+
+                // 降序排序
+                weightedItems.Sort((a, b) => b.Value.CompareTo(a.Value));
+
+                for (int i = 0; i < weightedItems.Count; i++)
+                {
+                    list[i] = weightedItems[i].Key;
+                }
+            }
+        }
     }
 
-    public static class ListUtilityExtensions
+    public static class ListPopExtensions
     {
         /// <summary>
         /// 从列表头部抓取指定数量的元素，返回新列表，并在原列表中删除它们
