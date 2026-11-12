@@ -285,6 +285,88 @@ namespace DX.Core.Extensions.List
         // ==================================
         // 删除元素
         // ==================================
+
+        /// <summary>
+        /// 生成一个支持在原生 foreach 中安全修改（增/删/改）原集合的零 GC 包装器
+        /// </summary>
+        public static SafeListEnumerable<T> AsSafe<T>(this IList<T> list)
+        {
+            return new SafeListEnumerable<T>(list);
+        }
+
+        public readonly struct SafeListEnumerable<T>
+        {
+            private readonly IList<T> _source;
+            public SafeListEnumerable(IList<T> source) => _source = source;
+
+            public SafeListEnumerator<T> GetEnumerator() => new SafeListEnumerator<T>(_source);
+        }
+
+        public struct SafeListEnumerator<T> : IDisposable
+        {
+            private LocalListPool<T>.PooledObject _poolHandle;
+            private readonly List<T>? _snapshot;
+            private int _index;
+
+            public SafeListEnumerator(IList<T> source)
+            {
+                _index = -1;
+                if (source == null || source.Count == 0)
+                {
+                    _poolHandle = default;
+                    _snapshot = null;
+                    return;
+                }
+
+                // 借出池化列表并拷贝快照
+                _poolHandle = LocalListPool<T>.Get(out _snapshot);
+                for (int i = 0; i < source.Count; i++)
+                {
+                    _snapshot.Add(source[i]);
+                }
+            }
+
+            public T Current => _snapshot![_index];
+
+            public bool MoveNext()
+            {
+                if (_snapshot == null) return false;
+                return ++_index < _snapshot.Count;
+            }
+
+            // foreach 结束（包括中途 break / return / 抛异常）时，C# 编译器会自动调用此 Dispose 归还对象池
+            public void Dispose()
+            {
+                if (_snapshot != null)
+                {
+                    _poolHandle.Dispose();
+                }
+            }
+        }
+        /// <summary>
+        /// 安全遍历列表（内部使用池化快照，支持在内部任意调用原列表的 Remove / Add / Clear）
+        /// </summary>
+        public static void ForEachSafe<T>(this IList<T> list, Action<T> action)
+        {
+            if (list == null || list.Count == 0 || action == null) return;
+
+            // 从线程静态池中借用一个临时列表，0 GC
+            using (LocalListPool<T>.Get(out var snapshot))
+            {
+                // 1. 制作当前帧的快照
+                for (int i = 0; i < list.Count; i++)
+                {
+                    snapshot.Add(list[i]);
+                }
+
+                // 2. 遍历快照（此时在 action 内部随便修改原 list 都不会影响遍历）
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    action(snapshot[i]);
+                }
+            }
+        }
+
         /// <summary>
         /// O(1) 复杂度的删除（快速删除，不保证原有顺序）
         /// 适合管理特效、子弹、怪物等不需要严格排序的活跃对象列表
@@ -625,8 +707,8 @@ namespace DX.Core.Extensions.List
 
             return grabbedList;
         }
-
     }
+
     /// <summary>
     /// 兼容各版本的线程安全 Random
     /// (.NET 6+ 会直接使用 Random.Shared，老版本使用 ThreadLocal)
