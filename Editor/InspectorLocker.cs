@@ -7,63 +7,78 @@ namespace DX.Core.EditorScripts
 {
     internal static class InspectorLocker
     {
-        private static PropertyInfo _isLockedProperty;
+        private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
         private static Type _inspectorType;
+        private static PropertyInfo _isLockedProperty;
+        private static FieldInfo _parentField;          // EditorWindow.m_Parent
+        private static PropertyInfo _actualViewProperty; // HostView.actualView
 
         [MenuItem("Edit/Toggle Lock &q")]
         private static void Toggle()
         {
-            // 1. 初始化反射信息（仅在初次使用时执行一次，保证性能）
-            if (_inspectorType == null)
+            if (!InitReflection()) return;
+
+            EditorWindow target = FindTarget();
+            if (target == null) return;
+
+            bool locked = (bool)_isLockedProperty.GetValue(target, null);
+            _isLockedProperty.SetValue(target, !locked, null);
+            target.Repaint();
+        }
+
+        private static bool InitReflection()
+        {
+            _inspectorType ??= typeof(Editor).Assembly.GetType("UnityEditor.InspectorWindow");
+            if (_inspectorType == null) return false;
+
+            _isLockedProperty ??= _inspectorType.GetProperty("isLocked", Flags);
+            _parentField ??= typeof(EditorWindow).GetField("m_Parent", Flags);
+            return _isLockedProperty != null;
+        }
+
+        private static EditorWindow FindTarget()
+        {
+            // A：鼠标悬停
+            var over = EditorWindow.mouseOverWindow;
+            if (over != null && over.GetType() == _inspectorType) return over;
+
+            // B：焦点窗口
+            var focused = EditorWindow.focusedWindow;
+            if (focused != null && focused.GetType() == _inspectorType) return focused;
+
+            // C：在所有 Inspector 中选“当前可见”的标签页
+            EditorWindow firstVisible = null;
+            EditorWindow fallback = null;
+
+            foreach (var obj in Resources.FindObjectsOfTypeAll(_inspectorType))
             {
-                _inspectorType = typeof(Editor).Assembly.GetType("UnityEditor.InspectorWindow");
-                if (_inspectorType == null) return;
+                if (!(obj is EditorWindow w) || w == null) continue;
+
+                fallback ??= w;
+                if (!IsVisibleTab(w)) continue;
+
+                // 多个都可见时，优先选“未锁定”的（即跟随选择的那个）
+                bool locked = (bool)_isLockedProperty.GetValue(w, null);
+                if (!locked) return w;
+
+                firstVisible ??= w;
             }
 
-            if (_isLockedProperty == null)
-            {
-                _isLockedProperty = _inspectorType.GetProperty("isLocked", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (_isLockedProperty == null) return;
-            }
+            return firstVisible ?? fallback;
+        }
 
-            // 2. 智能获取目标 Inspector 窗口
-            EditorWindow targetInspector = null;
+        private static bool IsVisibleTab(EditorWindow w)
+        {
+            if (_parentField == null) return true;
 
-            // 优先情况 A：鼠标正停留在某个 Inspector 上
-            if (EditorWindow.mouseOverWindow != null && EditorWindow.mouseOverWindow.GetType() == _inspectorType)
-            {
-                targetInspector = EditorWindow.mouseOverWindow;
-            }
-            // 优先情况 B：当前激活（获取焦点）的窗口就是 Inspector
-            else if (EditorWindow.focusedWindow != null && EditorWindow.focusedWindow.GetType() == _inspectorType)
-            {
-                targetInspector = EditorWindow.focusedWindow;
-            }
-            // 兜底情况 C（你的场景：焦点在 Hierarchy 或 Project）：动态寻找当前正在显示的 Inspector
-            else
-            {
-                var allInspectors = Resources.FindObjectsOfTypeAll(_inspectorType);
-                if (allInspectors != null && allInspectors.Length > 0)
-                {
-                    // 找到第一个未被销毁的有效 Inspector
-                    foreach (var obj in allInspectors)
-                    {
-                        if (obj is EditorWindow window && window != null)
-                        {
-                            targetInspector = window;
-                            break;
-                        }
-                    }
-                }
-            }
+            var parent = _parentField.GetValue(w);
+            if (parent == null) return false; // 没有停靠父级，通常是已关闭/游离的
 
-            // 3. 执行锁定/解锁
-            if (targetInspector != null)
-            {
-                bool currentState = (bool)_isLockedProperty.GetValue(targetInspector, null);
-                _isLockedProperty.SetValue(targetInspector, !currentState, null);
-                targetInspector.Repaint(); // 刷新界面以立即看到小锁变化
-            }
+            _actualViewProperty ??= parent.GetType().GetProperty("actualView", Flags);
+            if (_actualViewProperty == null) return true;
+
+            return ReferenceEquals(_actualViewProperty.GetValue(parent, null), w);
         }
     }
 }
