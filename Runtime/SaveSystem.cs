@@ -374,19 +374,6 @@ namespace DX.Core.SaveManagement
 
     }
 
-    // /// <summary>
-    // /// 反射数据的快照包装器
-    // /// </summary>
-    // [Serializable, Preserve]
-    // public class ReflectionSnapshot
-    // {
-
-    //     public Dictionary<string, object> Fields = new();
-
-    //     public ReflectionSnapshot() { }
-    //     public ReflectionSnapshot(Dictionary<string, object> fields) => Fields = fields;
-    // }
-
     //! ============================================
     //! SaveSystem
     //! ============================================
@@ -481,7 +468,7 @@ namespace DX.Core.SaveManagement
 
         private class SaveEntryBase
         {
-            public WeakReference TargetRef;
+            public object Target;
             public CancellationTokenRegistration TokenRegistration;
         }
         // 静态实例
@@ -589,18 +576,17 @@ namespace DX.Core.SaveManagement
         public static void RegisterEntity(
             string saveKey,
             object instance,
-            bool autoRestore = true,
             bool autoSyncOnDestroy = false,
             CancellationToken cancellationToken = default)
         {
-            RegisterInternal(saveKey, instance, SaveScope.Game, null, autoRestore, autoSyncOnDestroy, cancellationToken);
+            RegisterInternal(saveKey, instance, SaveScope.Game, null, autoRestore: true, autoSyncOnDestroy, cancellationToken);
         }
 
         /// <summary>
         /// 【单例专用】注册全局共享实体，自动提取类型名或 [SaveType] 别名作为唯一 Key。
         /// 数据默认写入 "global_settings"，MonoBehaviour 自动托管生命周期，默认立即水合历史数据。
         /// </summary>
-        public static void RegisterGlobalEntity(object instance, string fileName = GLOBAL_SLOT_NAME, bool autoSyncOnDestroy = false)
+        public static void RegisterGlobalEntity(object instance, string fileName = GLOBAL_SLOT_NAME, bool autoSyncOnDestroy = true)
         {
             if (instance == null) return;
             string saveKey = ResolveSaveKeyFromType(instance);
@@ -638,7 +624,7 @@ namespace DX.Core.SaveManagement
 
             if (Registry.TryGetValue(saveKey, out var existingEntry))
             {
-                var existingTarget = existingEntry.TargetRef?.Target;
+                var existingTarget = existingEntry.Target;
 
                 if (ReferenceEquals(existingTarget, instance)) return;
 
@@ -652,7 +638,7 @@ namespace DX.Core.SaveManagement
 
             var entry = new SaveTargetEntry
             {
-                TargetRef = new WeakReference(instance),
+                Target = instance,
                 Scope = scope,
                 GlobalFileName = globalFileName
             };
@@ -752,7 +738,7 @@ namespace DX.Core.SaveManagement
 
             if (Factories.TryGetValue(storageKey, out var existingEntry))
             {
-                var existingTarget = existingEntry.TargetRef?.Target;
+                var existingTarget = existingEntry.Target;
                 if (ReferenceEquals(existingTarget, factory)) return;
 
                 if (IsTargetAlive(existingTarget))
@@ -765,7 +751,7 @@ namespace DX.Core.SaveManagement
 
             var entry = new FactoryEntry
             {
-                TargetRef = new WeakReference(factory),
+                Target = factory,
                 StorageKey = storageKey
             };
 
@@ -891,7 +877,7 @@ namespace DX.Core.SaveManagement
 
             if (dict.TryGetValue(key, out var entry))
             {
-                var currentTarget = entry.TargetRef?.Target;
+                var currentTarget = entry.Target;
 
                 if (ReferenceEquals(currentTarget, callingInstance) || !IsTargetAlive(currentTarget))
                 {
@@ -1020,7 +1006,7 @@ namespace DX.Core.SaveManagement
             {
                 var entry = kvp.Value;
 
-                var target = entry.TargetRef?.Target;
+                var target = entry.Target;
 
                 SyncEntityToMemoryInternal(kvp.Key, target);
             }
@@ -1029,7 +1015,7 @@ namespace DX.Core.SaveManagement
             // 备注：工厂和动态生成实体销毁时序不确定，所以不使用ct自动同步，或后续考虑生成时自动抓取LinkedCancellationToken
             foreach (var kvp in Factories)
             {
-                var target = kvp.Value.TargetRef?.Target;
+                var target = kvp.Value.Target;
 
                 if (target is IEntityFactory factory)
                 {
@@ -1411,9 +1397,14 @@ namespace DX.Core.SaveManagement
                     GlobalPacksCache[fileName] = loadResult.Pack;
                 }
             }
+
             // 如果极早初始化的静态类已在 Registry 中，顺手给它们同步一次
-            foreach (var kvp in Registry)
+            var registrySnapshot = new KeyValuePair<string, SaveTargetEntry>[Registry.Count];
+            ((ICollection<KeyValuePair<string, SaveTargetEntry>>)Registry).CopyTo(registrySnapshot, 0);
+
+            for (int i = 0; i < registrySnapshot.Length; i++)
             {
+                var kvp = registrySnapshot[i];
                 var entry = kvp.Value;
                 if (entry.Scope == SaveScope.Global && entry.GlobalFileName != null)
                 {
@@ -1443,13 +1434,18 @@ namespace DX.Core.SaveManagement
                 }
             }
 
+            List<string> deadKeys = null;
             // 步骤 2：抓取当前场景所有激活工厂的最新数据
             foreach (var kvp in Factories)
             {
                 string storageKey = kvp.Key;
-                var target = kvp.Value.TargetRef.Target;
+                var target = kvp.Value.Target;
 
-                if (!IsTargetAlive(target)) continue;
+                if (!IsTargetAlive(target))
+                {
+                    (deadKeys ??= new List<string>()).Add(kvp.Key);
+                    continue;
+                }
 
                 var factory = (IEntityFactory)target;
                 var states = factory.CaptureAll();
@@ -1458,6 +1454,11 @@ namespace DX.Core.SaveManagement
                 {
                     newPack.DynamicEntities[storageKey] = states;
                 }
+            }
+
+            if (deadKeys != null)
+            {
+                foreach (var key in deadKeys) UnregisterFactory(key);
             }
         }
 
@@ -1474,7 +1475,7 @@ namespace DX.Core.SaveManagement
                 try
                 {
                     string prefabId = kvp.Key;
-                    var target = kvp.Value.TargetRef.Target;
+                    var target = kvp.Value.Target;
                     if (!IsTargetAlive(target)) continue;
 
                     var factory = (IEntityFactory)target;
@@ -1530,13 +1531,19 @@ namespace DX.Core.SaveManagement
 
             var pack = new SavePack { Metadata = meta };
 
+            // 惰性清理
+            List<string> deadKeys = null;
             foreach (var kvp in Registry)
             {
                 var entry = kvp.Value;
                 if (!filter(entry)) continue;
 
-                var target = entry.TargetRef.Target;
-                if (!IsTargetAlive(target)) continue;
+                var target = entry.Target;
+                if (!IsTargetAlive(target))
+                {
+                    (deadKeys ??= new List<string>()).Add(kvp.Key);
+                    continue;
+                }
 
                 string saveKey = kvp.Key;
 
@@ -1558,12 +1565,16 @@ namespace DX.Core.SaveManagement
                 }
             }
 
+            if (deadKeys != null)
+            {
+                foreach (var key in deadKeys) UnregisterEntity(key);
+            }
             return pack;
         }
 
         private static void RestoreSingleEntry(string saveKey, SaveTargetEntry entry, SavePack pack)
         {
-            var target = entry.TargetRef.Target;
+            var target = entry.Target;
             if (!IsTargetAlive(target)) return;
 
             if (pack.StaticEntities != null && pack.StaticEntities.TryGetValue(saveKey, out var state))
@@ -1925,6 +1936,17 @@ namespace DX.Core.SaveManagement.Storage
         private static JsonSerializer _serializer;
         public static JsonSerializer Serializer => _serializer;
 
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void AutoClear()
+        {
+            Settings.Converters.Clear();
+            _serializer = null;
+            SavedHashesCache.Clear();
+            _globalDirectory = null;
+            _savesDirectory = null;
+            SaveConvert.CustomSerializer = null;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void AutoInitialize()
         {
@@ -1940,7 +1962,6 @@ namespace DX.Core.SaveManagement.Storage
             _serializer = JsonSerializer.Create(Settings);
 
             SaveConvert.CustomSerializer = _serializer;
-
             SaveSystem.StorageProvider = new NewtonsoftStorageProvider();
 
             Debug.Log("<color=green>[SaveSystem]</color> <color=white>Newtonsoft.Json 已就绪！</color>");
@@ -3397,36 +3418,36 @@ namespace DX.Core.SaveManagement.Internal
                 return null;
 
             // ================= 1. 处理复合对象/包装结构 =================
-            if (token is JObject jobj)
+            if (token is JObject jObj)
             {
                 // 命中万能包装结构 {"$type": ..., "$val": ...}（基础类型、数组、未标 SaveType 的类）
-                if (jobj.ContainsKey(SaveContract.TYPE_TAG) && jobj.ContainsKey(SaveContract.VAL_TAG))
+                if (jObj.ContainsKey(SaveContract.TYPE_TAG) && jObj.ContainsKey(SaveContract.VAL_TAG))
                 {
-                    string typeId = jobj[SaveContract.TYPE_TAG].Value<string>();
+                    string typeId = jObj[SaveContract.TYPE_TAG].Value<string>();
                     var realType = SaveTypeRegistry.ResolveType(typeId);
                     if (realType != null)
                     {
-                        return jobj[SaveContract.VAL_TAG].ToObject(realType, SaveConvert.CustomSerializer);
+                        return jObj[SaveContract.VAL_TAG].ToObject(realType, SaveConvert.CustomSerializer);
                     }
-                    return jobj[SaveContract.VAL_TAG].ToObject<object>(SaveConvert.CustomSerializer);
+                    return jObj[SaveContract.VAL_TAG].ToObject<object>(SaveConvert.CustomSerializer);
                 }
 
                 // 内部本身包含多态标记（打了 [SaveType] 的自定义对象）
-                if (jobj.ContainsKey(SaveContract.TYPE_TAG))
+                if (jObj.ContainsKey(SaveContract.TYPE_TAG))
                 {
-                    string typeId = jobj[SaveContract.TYPE_TAG].Value<string>();
+                    string typeId = jObj[SaveContract.TYPE_TAG].Value<string>();
                     var realType = SaveTypeRegistry.ResolveType(typeId);
 
                     // 优先使用 $type 解析出来的真实类型反序列化；解析失败才退化为 targetType
                     Type finalType = realType ?? (targetType == typeof(object) ? typeof(object) : targetType);
-                    return jobj.ToObject(finalType, SaveConvert.CustomSerializer);
+                    return jObj.ToObject(finalType, SaveConvert.CustomSerializer);
                 }
 
                 // 老存档中的普通对象（当时既没包 $val，也没打 [SaveType]）
                 // 如果外部 targetType 是确定的非 object 类型，按该类型反序列化；否则读作 JObject 兜底保底
                 if (targetType != typeof(object) && !typeof(System.Collections.IDictionary).IsAssignableFrom(targetType))
                 {
-                    return jobj.ToObject(targetType, SaveConvert.CustomSerializer);
+                    return jObj.ToObject(targetType, SaveConvert.CustomSerializer);
                 }
             }
             // ================= 2. 补全列表/数组解包 =================
