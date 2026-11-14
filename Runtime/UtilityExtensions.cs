@@ -108,24 +108,118 @@ namespace DX.Core.Extensions
         }
 
         /// <summary>
-        /// 让物体的任意本地轴指向目标
+        /// 遍历所有直接子物体（倒序遍历，支持在回调中安全删除或移除子物体）
         /// </summary>
-        /// <param name="localAxis">要对准目标的轴，例如 transform.up (Y) 或 transform.right (X)</param>
-        public static void CustomLookAt(this Transform transform, Vector3 targetPosition, Vector3 localAxis, Vector3 upVector = default)
+        public static void ForEachChild(this Transform parent, Action<Transform> action)
         {
-            Vector3 dir = (targetPosition - transform.position).normalized;
-            if (dir.sqrMagnitude < 0.001f) return;
+            if (parent == null || action == null) return;
 
-            // Vector3 up = Mathf.Abs(Vector3.Dot(dir, Vector3.up)) > 0.99f ? Vector3.forward : Vector3.up;
-            Vector3 up = upVector == default ? Vector3.up : upVector;
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                // 防止回调中把父物体也销毁了，或同时删除了多个子物体导致越界
+                if (parent == null) break;
+                if (i >= parent.childCount) continue;
 
-            Quaternion lookRotation = Quaternion.LookRotation(dir, up);
-
-            Vector3 rawLocalAxis = transform.InverseTransformDirection(localAxis); // 获取未受旋转影响的模型轴空间
-            Quaternion offset = Quaternion.FromToRotation(rawLocalAxis, Vector3.forward);
-
-            transform.rotation = lookRotation * offset;
+                Transform child = parent.GetChild(i);
+                if (child != null)
+                {
+                    action(child);
+                }
+            }
         }
+
+        /// <summary>
+        /// 遍历所有直接子物体并尝试获取指定组件（支持组件类型与接口）
+        /// </summary>
+        public static void ForEachChild<T>(this Transform parent, Action<T> action)
+        {
+            if (parent == null || action == null) return;
+
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                if (parent == null) break;
+                if (i >= parent.childCount) continue;
+
+                Transform child = parent.GetChild(i);
+                if (child != null && child.TryGetComponent(out T component))
+                {
+                    action(component);
+                }
+            }
+        }
+
+        #region 1. DampedTrackTo (无 UpVector，最短路径旋转)
+
+        /// <summary>
+        /// 使骨骼的指定局部轴以最短路径看向目标（类似 Blender 的 Damped Track）
+        /// </summary>
+        public static void DampedTrackTo(this Transform bone, Transform target, Vector3 localTrackAxis)
+        {
+            if (target == null) return;
+            bone.DampedTrackTo(target.position, localTrackAxis);
+        }
+
+        /// <summary>
+        /// 使骨骼的指定局部轴以最短路径看向目标位置
+        /// </summary>
+        public static void DampedTrackTo(this Transform bone, Vector3 targetPosition, Vector3 localTrackAxis)
+        {
+            if (bone == null) return;
+
+            Vector3 targetDir = targetPosition - bone.position;
+            if (targetDir.sqrMagnitude < 1e-8f || localTrackAxis.sqrMagnitude < 1e-8f) return;
+
+            Vector3 currentWorldDir = bone.rotation * localTrackAxis.normalized;
+            Quaternion deltaRotation = Quaternion.FromToRotation(currentWorldDir, targetDir.normalized);
+
+            bone.rotation = deltaRotation * bone.rotation;
+        }
+
+        #endregion
+
+        #region 2. TrackTo (有 UpVector，严格锁定朝向与翻滚)
+
+        /// <summary>
+        /// 使骨骼的指定局部轴看向目标，并使局部 Up 轴对齐世界正上方 Vector3.up（类似 Blender 的 Track To）
+        /// </summary>
+        public static void TrackTo(this Transform bone, Transform target, Vector3 localTrackAxis, Vector3 localUpAxis)
+        {
+            if (target == null) return;
+            bone.TrackTo(target.position, localTrackAxis, localUpAxis, Vector3.up);
+        }
+
+        /// <summary>
+        /// 使骨骼的指定局部轴看向目标，并对齐自定义的 worldUp
+        /// </summary>
+        public static void TrackTo(this Transform bone, Transform target, Vector3 localTrackAxis, Vector3 localUpAxis, Vector3 worldUp)
+        {
+            if (target == null) return;
+            bone.TrackTo(target.position, localTrackAxis, localUpAxis, worldUp);
+        }
+
+        /// <summary>
+        /// 使骨骼的指定局部轴看向目标位置，并对齐自定义的 worldUp
+        /// </summary>
+        public static void TrackTo(this Transform bone, Vector3 targetPosition, Vector3 localTrackAxis, Vector3 localUpAxis, Vector3 worldUp)
+        {
+            if (bone == null) return;
+
+            Vector3 targetDir = targetPosition - bone.position;
+            if (targetDir.sqrMagnitude < 1e-8f) return;
+
+            if (Vector3.Cross(localTrackAxis, localUpAxis).sqrMagnitude < 1e-8f)
+            {
+                Debug.LogWarning("TrackTo: localTrackAxis 和 localUpAxis 不能平行或为零向量。", bone);
+                return;
+            }
+
+            Quaternion worldLook = Quaternion.LookRotation(targetDir.normalized, worldUp);
+            Quaternion localOffset = Quaternion.LookRotation(localTrackAxis, localUpAxis);
+
+            bone.rotation = worldLook * Quaternion.Inverse(localOffset);
+        }
+
+        #endregion
     }
 
     public static class AvatarMaskExtensions
