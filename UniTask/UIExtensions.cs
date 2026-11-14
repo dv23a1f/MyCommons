@@ -475,9 +475,17 @@ namespace DX.Core.Extensions.UI
         /// </summary>
         private static CancellationToken CreateManagedToken(Button button, CancellationToken externalCt)
         {
-            if (button.destroyCancellationToken.IsCancellationRequested || externalCt.IsCancellationRequested)
+            var destroyToken = button.destroyCancellationToken;
+
+            if (destroyToken.IsCancellationRequested || externalCt.IsCancellationRequested)
             {
                 return new CancellationToken(true);
+            }
+
+            // 如果外部传的就是 button 自身的销毁令牌，置为 default 避免重复注册两次
+            if (externalCt == destroyToken)
+            {
+                externalCt = default;
             }
 
             var cts = CancellationTokenSource.CreateLinkedTokenSource(button.destroyCancellationToken, externalCt);
