@@ -475,25 +475,27 @@ namespace DX.Core.Extensions.UI
         /// </summary>
         private static CancellationToken CreateManagedToken(Button button, CancellationToken externalCt)
         {
-            // 1. 验证两个源 Token 是否已处于取消状态（如物体正在销毁、或外部已取消）
-            // 注：无需排除 default (CancellationToken.None)，CreateLinkedTokenSource 内部会自动忽略它
             if (button.destroyCancellationToken.IsCancellationRequested || externalCt.IsCancellationRequested)
             {
                 return new CancellationToken(true);
             }
 
             var cts = CancellationTokenSource.CreateLinkedTokenSource(button.destroyCancellationToken, externalCt);
-
-            // 2. 先取出 Token 结构体，防止极端多线程竞态下 Register 同步 Dispose 导致访问 cts.Token 抛异常
             CancellationToken token = cts.Token;
 
             var list = s_BindingCtsTable.GetOrCreateValue(button);
-            list.Add(cts);
+            lock (list)
+            {
+                list.Add(cts);
+            }
 
             token.Register(static state =>
             {
                 var (ctsList, targetCts) = ((List<CancellationTokenSource>, CancellationTokenSource))state;
-                ctsList.Remove(targetCts);
+                lock (ctsList)
+                {
+                    ctsList.Remove(targetCts);
+                }
                 targetCts.Dispose();
             }, (list, cts));
 
@@ -509,12 +511,20 @@ namespace DX.Core.Extensions.UI
 
             if (s_BindingCtsTable.TryGetValue(button, out var list))
             {
-                // 先从弱引用表摘除（防止下面 Cancel 触发的回调和当前遍历同时修改 list）
+                // 先从表里摘除，避免在取消回调中触发的新绑定污染当前清理
                 s_BindingCtsTable.Remove(button);
 
-                for (int i = list.Count - 1; i >= 0; i--)
+                while (true)
                 {
-                    var cts = list[i];
+                    CancellationTokenSource cts;
+                    lock (list)
+                    {
+                        if (list.Count == 0) break;
+                        int lastIndex = list.Count - 1;
+                        cts = list[lastIndex];
+                        list.RemoveAt(lastIndex);
+                    }
+
                     try
                     {
                         if (!cts.IsCancellationRequested)
@@ -635,7 +645,7 @@ namespace DX.Core.Extensions.UI
                     }
                     finally
                     {
-                        if (button != null)
+                        if (button != null && disableInteractable && !token.IsCancellationRequested)
                         {
                             button.interactable = true;
                         }
@@ -651,7 +661,7 @@ namespace DX.Core.Extensions.UI
                 {
                     button.onClick.RemoveListener(targetAction);
 
-                    if (disableInteractable && !button.interactable)
+                    if (disableInteractable && !button.interactable && !button.destroyCancellationToken.IsCancellationRequested)
                     {
                         button.interactable = true;
                     }
@@ -744,7 +754,7 @@ namespace DX.Core.Extensions.UI
                 {
                     isRunning = false;
                     // 确保 button 没被 Destroy 时才恢复状态
-                    if (button != null && disableInteractable)
+                    if (button != null && disableInteractable && !token.IsCancellationRequested)
                     {
                         button.interactable = previousInteractable;
                     }
@@ -764,7 +774,7 @@ namespace DX.Core.Extensions.UI
                 {
                     button.onClick.RemoveListener(clickAction);
 
-                    if (disableInteractable && !button.interactable)
+                    if (disableInteractable && !button.interactable && !button.destroyCancellationToken.IsCancellationRequested)
                     {
                         button.interactable = true;
                     }
