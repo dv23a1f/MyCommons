@@ -467,6 +467,69 @@ namespace DX.Core.Extensions.UI
 
     public static class ButtonExtensions
     {
+        // 缓存每个 Button 通过扩展方法创建的绑定的 CTS
+        private static readonly ConditionalWeakTable<Button, List<CancellationTokenSource>> s_BindingCtsTable = new();
+
+        /// <summary>
+        /// 创建受托管的复合 CTS，并注册自动清理逻辑
+        /// </summary>
+        private static CancellationToken CreateManagedToken(Button button, CancellationToken externalCt)
+        {
+            // 1. 验证两个源 Token 是否已处于取消状态（如物体正在销毁、或外部已取消）
+            // 注：无需排除 default (CancellationToken.None)，CreateLinkedTokenSource 内部会自动忽略它
+            if (button.destroyCancellationToken.IsCancellationRequested || externalCt.IsCancellationRequested)
+            {
+                return new CancellationToken(true);
+            }
+
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(button.destroyCancellationToken, externalCt);
+
+            // 2. 先取出 Token 结构体，防止极端多线程竞态下 Register 同步 Dispose 导致访问 cts.Token 抛异常
+            CancellationToken token = cts.Token;
+
+            var list = s_BindingCtsTable.GetOrCreateValue(button);
+            list.Add(cts);
+
+            token.Register(static state =>
+            {
+                var (ctsList, targetCts) = ((List<CancellationTokenSource>, CancellationTokenSource))state;
+                ctsList.Remove(targetCts);
+                targetCts.Dispose();
+            }, (list, cts));
+
+            return token;
+        }
+
+        /// <summary>
+        /// 取消并释放该 Button 通过扩展方法注册的所有 Token 绑定（推荐对象池回收或重置前调用）
+        /// </summary>
+        public static void UnbindAllListeners(this Button button)
+        {
+            if (button == null) return;
+
+            if (s_BindingCtsTable.TryGetValue(button, out var list))
+            {
+                // 先从弱引用表摘除（防止下面 Cancel 触发的回调和当前遍历同时修改 list）
+                s_BindingCtsTable.Remove(button);
+
+                for (int i = list.Count - 1; i >= 0; i--)
+                {
+                    var cts = list[i];
+                    try
+                    {
+                        if (!cts.IsCancellationRequested)
+                        {
+                            cts.Cancel();
+                        }
+                    }
+                    finally
+                    {
+                        cts.Dispose();
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// 为 Button 添加点击事件监听 ，可传入 CancellationToken 自动取消订阅
         /// 备注：池化对象传入 cancellationToken 并且手动调用 RemoveAllListeners 后会造成泄露
@@ -477,25 +540,18 @@ namespace DX.Core.Extensions.UI
             if (action == null) throw new ArgumentNullException(nameof(action));
             if (cancellationToken.IsCancellationRequested) return;
 
+            CancellationToken token = CreateManagedToken(button, cancellationToken);
+
             button.onClick.AddListener(action);
 
-            if (cancellationToken.CanBeCanceled)
+            token.Register(() =>
             {
-                cancellationToken.Register(() =>
+                if (button != null)
                 {
-                    if (button != null)
-                    {
-                        button.onClick.RemoveListener(action);
-
-                    }
-                });
-            }
+                    button.onClick.RemoveListener(action);
+                }
+            });
         }
-
-        /// <summary>
-        /// 转发 onClick.RemoveAllListeners() 简化调用
-        /// </summary>
-        public static void RemoveAllListeners(this Button button) => button.onClick.RemoveAllListeners();
 
         /// <summary>
         /// 为 Button 添加带【动态冷却时间】的点击事件监听（冷却时间由回调函数决定）
@@ -519,7 +575,8 @@ namespace DX.Core.Extensions.UI
             if (cooldownProvider == null) throw new ArgumentNullException(nameof(cooldownProvider));
             if (cancellationToken.IsCancellationRequested) return;
 
-            CancellationToken token = BindableInternalUtility.LinkTokenSafely(button.destroyCancellationToken, cancellationToken);
+            CancellationToken token = CreateManagedToken(button, cancellationToken);
+
             UnityAction targetAction;
 
             if (!disableInteractable)
@@ -652,7 +709,7 @@ namespace DX.Core.Extensions.UI
             }
 
             // 2. 合并外部 Token 和 Button 自身的销毁 Token
-            var token = BindableInternalUtility.LinkTokenSafely(button.destroyCancellationToken, cancellationToken);
+            var token = CreateManagedToken(button, cancellationToken);
 
             // 3. 状态锁
             bool isRunning = false;
@@ -742,7 +799,7 @@ namespace DX.Core.Extensions.UI
             }
             if (cancellationToken.IsCancellationRequested) return;
 
-            var token = BindableInternalUtility.LinkTokenSafely(button.destroyCancellationToken, cancellationToken);
+            var token = CreateManagedToken(button, cancellationToken);
 
             // 状态记录（由闭包持有生命周期）
             int currentClicks = 0;
@@ -804,7 +861,9 @@ namespace DX.Core.Extensions.UI
             if (action == null) throw new ArgumentNullException(nameof(action));
             if (cancellationToken.IsCancellationRequested) return;
 
-            button.AsEventBindable(cancellationToken)
+            var managedToken = CreateManagedToken(button, cancellationToken);
+
+            button.AsEventBindable(managedToken)
                 .OnPointerClick(
                     _ => action.Invoke(),
                     filter: eventData => button.enabled && button.interactable && eventData.button == PointerEventData.InputButton.Right
@@ -826,7 +885,9 @@ namespace DX.Core.Extensions.UI
             if (action == null) throw new ArgumentNullException(nameof(action));
             if (cancellationToken.IsCancellationRequested) return;
 
-            button.AsEventBindable(cancellationToken)
+            var managedToken = CreateManagedToken(button, cancellationToken);
+
+            button.AsEventBindable(managedToken)
                 .OnPointerClick(
                     action,
                     filter: eventData => button.enabled && button.interactable && eventData.button == PointerEventData.InputButton.Right
@@ -856,8 +917,8 @@ namespace DX.Core.Extensions.UI
             if (onLongPress == null) throw new ArgumentNullException(nameof(onLongPress));
             if (cancellationToken.IsCancellationRequested) return;
 
-            // 1. 获取现有的 EventBindableScope（内部已自动处理销毁 Token 与外部 Token 的安全合并）
-            var scope = button.AsEventBindable(cancellationToken);
+            var managedToken = CreateManagedToken(button, cancellationToken);
+            var scope = button.AsEventBindable(managedToken);
 
             // 2. 状态管理
             CancellationTokenSource pressCts = null;
