@@ -3787,6 +3787,7 @@ namespace DX.Core.SaveManagement
     /// 通用 3D Transform 存档数据快照
     /// </summary>
     [Serializable]
+    [Preserve]
     public struct SaveTransform
     {
         public Vector3 localPosition;
@@ -3823,6 +3824,7 @@ namespace DX.Core.SaveManagement
     /// UI 专用 RectTransform 存档数据快照
     /// </summary>
     [Serializable]
+    [Preserve]
     public struct SaveRectTransform
     {
         public Vector2 anchoredPosition;
