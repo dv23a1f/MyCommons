@@ -1,19 +1,22 @@
 using UnityEngine;
 
-public static class AppLifecycle
+namespace DX.Core.App
 {
-    public static bool IsQuitting { get; private set; }
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-    private static void Init()
+    public static class AppLifecycle
     {
-        IsQuitting = false;
-        Application.quitting -= OnQuitting;
-        Application.quitting += OnQuitting;
-    }
+        public static bool IsQuitting { get; private set; }
 
-    private static void OnQuitting()
-    {
-        IsQuitting = true;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void Init()
+        {
+            IsQuitting = false;
+            Application.quitting -= OnQuitting;
+            Application.quitting += OnQuitting;
+        }
+
+        private static void OnQuitting()
+        {
+            IsQuitting = true;
+        }
     }
 }

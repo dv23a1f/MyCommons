@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using DX.Core.App;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
@@ -161,6 +162,10 @@ namespace DX.Core.Input
 
         private void OnDisable()
         {
+            if (AppLifecycle.IsQuitting) return;
+            // 不为单例模式额外检测isLoaded
+            if (!_setAsGlobalDefault && !gameObject.scene.isLoaded) return;
+
             SwitchActionMap(IInputService.MapNone);
         }
 
