@@ -1387,8 +1387,7 @@ namespace DX.Core.SaveManagement
                 else if (loadResult.Status == LoadStatus.Corrupted)
                 {
                     Debug.LogError($"<color=red>[SaveSystem]</color> [{fileName}] 读取解析失败: {loadResult.Exception?.Message}");
-                    // 备注：这时 MonoBehaviour 组件未注册，无法通过订阅事件来恢复存档
-                    // 必须在 AfterAssembliesLoaded 中订阅事件，之后会在BeforeSceneLoad初始化完成后广播
+                    // 备注：这时 MonoBehaviour 组件未注册，Mono 无法通过订阅事件来恢复存档
                     _eventHub.Publish(SaveEventType.GlobalFileCorrupted, fileName);
                 }
                 else if (loadResult.Status == LoadStatus.Success)
@@ -1398,7 +1397,7 @@ namespace DX.Core.SaveManagement
                 }
             }
 
-            // 如果极早初始化的静态类已在 Registry 中，顺手给它们同步一次
+            // 如果使用静态类极早初始化，顺手给它们同步一次
             var registrySnapshot = new KeyValuePair<string, SaveTargetEntry>[Registry.Count];
             ((ICollection<KeyValuePair<string, SaveTargetEntry>>)Registry).CopyTo(registrySnapshot, 0);
 
@@ -1947,7 +1946,7 @@ namespace DX.Core.SaveManagement.Storage
             SaveConvert.CustomSerializer = null;
         }
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSplashScreen)]
         private static void AutoInitialize()
         {
             // 确保存档子目录存在
@@ -3787,6 +3786,7 @@ namespace DX.Core.SaveManagement
     /// 通用 3D Transform 存档数据快照
     /// </summary>
     [Serializable]
+    [Preserve]
     public struct SaveTransform
     {
         public Vector3 localPosition;
@@ -3823,6 +3823,7 @@ namespace DX.Core.SaveManagement
     /// UI 专用 RectTransform 存档数据快照
     /// </summary>
     [Serializable]
+    [Preserve]
     public struct SaveRectTransform
     {
         public Vector2 anchoredPosition;
