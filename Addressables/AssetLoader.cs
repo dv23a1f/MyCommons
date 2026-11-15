@@ -464,6 +464,19 @@ namespace DX.Core.Addressable
         //!===================================================
 
         /// <summary>
+        /// 同步获取已加载的资产，需要先执行 PreloadAssets / LoadAssetsByLabel
+        /// </summary>
+        public static T GetLoaded<T>(string address) where T : Object
+        {
+            if (_handles.TryGetValue(address, out var handle) && handle.IsDone && handle.Status == AsyncOperationStatus.Succeeded)
+            {
+                return handle.Result as T;
+            }
+            Debug.LogError($"[AssetLoader] 资产尚未预加载完成: {address}");
+            return null;
+        }
+
+        /// <summary>
         /// 批量加载/预热资产
         /// </summary>
         public static async UniTask PreloadAssets<T>(IEnumerable<string> addresses, IProgress<float> progress = null, CancellationToken ct = default) where T : Object
