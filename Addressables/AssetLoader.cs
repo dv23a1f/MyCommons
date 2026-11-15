@@ -18,10 +18,22 @@ namespace DX.Core.Addressable
         static void AutoReset()
         {
             _isCatalogInitialized = false;
+            _lastUnloadFrame = -10;
         }
+
+        private static int _lastUnloadFrame = -10;
 
         // 用于Exists查询之前先进行初始化的标记
         private static bool _isCatalogInitialized = false;
+
+        // 风险提示
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        private static void CheckSyncRisk(string address)
+        {
+
+            if (Time.frameCount - _lastUnloadFrame <= 1)
+                Debug.LogWarning($"<b><color=yellow>[AssetLoader] 刚 Unload 完紧接着同步加载 {address}，打包极易死锁！</color></b>");
+        }
 
         // 缓存所有加载过的句柄
         private static readonly Dictionary<string, AsyncOperationHandle> _handles = new();
@@ -97,6 +109,8 @@ namespace DX.Core.Addressable
                 return existingHandle.Result as T;
             }
 
+            CheckSyncRisk(address);
+
             var handle = Addressables.LoadAssetAsync<T>(address);
             _handles.Add(address, handle);
 
@@ -121,6 +135,8 @@ namespace DX.Core.Addressable
         /// </summary>
         public static GameObject InstantiateImmediate(string address, Transform parent = null, bool inWorldSpace = false)
         {
+            CheckSyncRisk(address);
+
             var handle = Addressables.InstantiateAsync(address, parent, inWorldSpace);
             try
             {
@@ -527,6 +543,7 @@ namespace DX.Core.Addressable
         {
             if (_handles.TryGetValue(address, out var handle))
             {
+                _lastUnloadFrame = Time.frameCount;
                 Addressables.Release(handle);
                 _handles.Remove(address);
             }
@@ -537,6 +554,10 @@ namespace DX.Core.Addressable
         /// </summary>
         public static void UnloadAll()
         {
+            if (_handles.Count == 0) return;
+
+            _lastUnloadFrame = Time.frameCount;
+
             foreach (var handle in _handles.Values)
             {
                 if (handle.IsValid())
