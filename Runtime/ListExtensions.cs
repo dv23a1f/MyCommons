@@ -96,11 +96,16 @@ namespace DX.Core.Extensions.List
     {
 
         /// <summary>
-        /// 检查列表或数组是否为null或空
+        /// 检查列表或数组是否为null或空。可对string使用，等价于 string.IsNullOrEmpty()
         /// </summary>
         public static bool IsNullOrEmpty<T>(this IEnumerable<T>? source)
         {
             if (source == null) return true;
+
+            if (source is string str)
+            {
+                return str.Length == 0;
+            }
 
             if (source is ICollection<T> collection)
             {
@@ -110,6 +115,11 @@ namespace DX.Core.Extensions.List
             if (source is IReadOnlyCollection<T> readOnlyCollection)
             {
                 return readOnlyCollection.Count == 0;
+            }
+
+            if (source is System.Collections.ICollection nonGenericCollection)
+            {
+                return nonGenericCollection.Count == 0;
             }
 
             using (var enumerator = source.GetEnumerator())
