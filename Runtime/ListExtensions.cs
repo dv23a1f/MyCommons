@@ -296,22 +296,35 @@ namespace DX.Core.Extensions.Collections
         //# ==================================
         //# 安全遍历 (AsSafe 零 GC 包装器)
         //# ==================================
-
+        /// <summary>
+        /// 支持在遍历时增加/删除元素（遍历快照）。用法：foreach (var item in list.AsSafe()) {...}
+        /// </summary>
         public static SafeListEnumerable<T> AsSafe<T>(this IList<T>? list)
             => new SafeListEnumerable<T>(list);
 
+        /// <summary>
+        /// 支持在遍历时增加/删除元素（遍历快照）。用法：foreach (var item in hashSet.AsSafe()) {...}
+        /// </summary>
         public static SafeHashSetEnumerable<T> AsSafe<T>(this HashSet<T>? set)
             => new SafeHashSetEnumerable<T>(set);
 
+        /// <summary>
+        /// 支持在遍历时增加/删除元素（遍历快照）。用法：foreach (var kvp in dict.AsSafe()) {...} / foreach (var (key, value) in dict.AsSafe()){...}
+        /// </summary>
         public static SafeDictionaryEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>? dict)
             where TKey : notnull
             => new SafeDictionaryEnumerable<TKey, TValue>(dict);
 
-        // 如果经常只想安全遍历字典的 Key 或 Value（例如遍历时删除某些 Key）
+        /// <summary>
+        /// 支持在遍历时增加/删除元素（遍历快照）。用法：foreach (var key in dict.Keys.AsSafe()) {...}
+        /// </summary>
         public static SafeDictKeyEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>.KeyCollection? keys)
             where TKey : notnull
             => new SafeDictKeyEnumerable<TKey, TValue>(keys);
 
+        /// <summary>
+        /// 支持在遍历时增加/删除元素（遍历快照）。用法：foreach (var value in dict.Values.AsSafe()) {...}
+        /// </summary>
         public static SafeDictValueEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>.ValueCollection? values)
             where TKey : notnull
             => new SafeDictValueEnumerable<TKey, TValue>(values);
