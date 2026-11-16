@@ -3,96 +3,10 @@
 using System;
 using System.Collections.Generic;
 
-namespace DX.Core.Extensions.List
+namespace DX.Core.Extensions.Collections
 {
 
-    /// <summary>
-    /// 基于线程静态缓存的极简 List 池（每个线程独立持有缓存，保证多线程安全且零锁开销）
-    /// </summary>
-    internal static class LocalListPool<T>
-    {
-        private const int MaxCapacity = 256; // 超过则不回收
-        private const int MaxPooled = 16;    // 每线程最多缓存的列表数
-
-        [ThreadStatic]
-        private static Stack<List<T>>? _pool;
-
-        public readonly struct PooledObject : IDisposable
-        {
-            private readonly List<T>? _list;
-            public PooledObject(List<T> list) => _list = list;
-
-            public void Dispose()
-            {
-                var list = _list;
-                if (list == null) return;
-
-                list.Clear();
-                if (list.Capacity > MaxCapacity) return; // 直接丢弃，不再分配新数组
-
-                var pool = _pool ??= new Stack<List<T>>();
-#if DEBUG
-                if (pool.Contains(list))
-                    throw new InvalidOperationException("LocalListPool: 同一个 List 被重复归还");
-#endif
-                if (pool.Count < MaxPooled) pool.Push(list);
-            }
-        }
-
-        public static PooledObject Get(out List<T> list)
-        {
-            var pool = _pool;
-            list = (pool != null && pool.Count > 0) ? pool.Pop() : new List<T>();
-            list.Clear();
-            return new PooledObject(list);
-        }
-    }
-
-    /// <summary>
-    /// 基于线程静态缓存的极简 HashSet 池
-    /// </summary>
-    internal static class LocalHashSetPool<T>
-    {
-        private const int MaxCount = 256;   // 归还时元素数超过则丢弃
-        private const int MaxPooled = 16;   // 每线程最多缓存的集合数
-
-        [ThreadStatic]
-        private static Stack<HashSet<T>>? _pool;
-
-        public readonly struct PooledObject : IDisposable
-        {
-            private readonly HashSet<T>? _set;
-            public PooledObject(HashSet<T> set) => _set = set;
-
-            public void Dispose()
-            {
-                var set = _set;
-                if (set == null) return;
-
-                // 必须在 Clear 之前取 Count
-                bool tooLarge = set.Count > MaxCount;
-                set.Clear();
-                if (tooLarge) return; // 丢弃，交给 GC
-
-                var pool = _pool ??= new Stack<HashSet<T>>();
-#if DEBUG
-                if (pool.Contains(set))
-                    throw new InvalidOperationException("LocalHashSetPool: 同一个 HashSet 被重复归还");
-#endif
-                if (pool.Count < MaxPooled) pool.Push(set);
-            }
-        }
-
-        public static PooledObject Get(out HashSet<T> set)
-        {
-            var pool = _pool;
-            set = (pool != null && pool.Count > 0) ? pool.Pop() : new HashSet<T>();
-            set.Clear();
-            return new PooledObject(set);
-        }
-    }
-
-    public static class ListExtensions
+    public static class CollectionExtensions
     {
 
         /// <summary>
@@ -288,64 +202,6 @@ namespace DX.Core.Extensions.List
         //# ==================================
 
         /// <summary>
-        /// 生成一个支持在原生 foreach 中安全修改（增/删/改）原集合的零 GC 包装器
-        /// </summary>
-        public static SafeListEnumerable<T> AsSafe<T>(this IList<T> list)
-        {
-            return new SafeListEnumerable<T>(list);
-        }
-
-        public readonly struct SafeListEnumerable<T>
-        {
-            private readonly IList<T> _source;
-            public SafeListEnumerable(IList<T> source) => _source = source;
-
-            public SafeListEnumerator<T> GetEnumerator() => new SafeListEnumerator<T>(_source);
-        }
-
-        public struct SafeListEnumerator<T> : IDisposable
-        {
-            private LocalListPool<T>.PooledObject _poolHandle;
-            private readonly List<T>? _snapshot;
-            private int _index;
-
-            public SafeListEnumerator(IList<T> source)
-            {
-                _index = -1;
-                if (source == null || source.Count == 0)
-                {
-                    _poolHandle = default;
-                    _snapshot = null;
-                    return;
-                }
-
-                // 借出池化列表并拷贝快照
-                _poolHandle = LocalListPool<T>.Get(out _snapshot);
-                for (int i = 0; i < source.Count; i++)
-                {
-                    _snapshot.Add(source[i]);
-                }
-            }
-
-            public T Current => _snapshot![_index];
-
-            public bool MoveNext()
-            {
-                if (_snapshot == null) return false;
-                return ++_index < _snapshot.Count;
-            }
-
-            // foreach 结束（包括中途 break / return / 抛异常）时，C# 编译器会自动调用此 Dispose 归还对象池
-            public void Dispose()
-            {
-                if (_snapshot != null)
-                {
-                    _poolHandle.Dispose();
-                }
-            }
-        }
-
-        /// <summary>
         /// 安全遍历列表（内部使用池化快照，支持在内部任意调用原列表的 Remove / Add / Clear）
         /// </summary>
         public static void ForEachSafe<T>(this IList<T> list, Action<T> action)
@@ -365,6 +221,233 @@ namespace DX.Core.Extensions.List
                 for (int i = 0; i < snapshot.Count; i++)
                 {
                     action(snapshot[i]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 安全遍历 HashSet（内部使用池化快照，支持在回调中任意 Add / Remove / Clear）
+        /// </summary>
+        public static void ForEachSafe<T>(this HashSet<T>? set, Action<T>? action)
+        {
+            if (set == null || set.Count == 0 || action == null) return;
+
+            using (LocalListPool<T>.Get(out var snapshot))
+            {
+                // 直接 foreach HashSet<T> 会调用 struct Enumerator，0 GC
+                foreach (var item in set)
+                {
+                    snapshot.Add(item);
+                }
+
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    action(snapshot[i]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 安全遍历 Dictionary（直接传入 Key 和 Value，内部使用池化快照，支持在回调中任意增删改）
+        /// </summary>
+        public static void ForEachSafe<TKey, TValue>(this Dictionary<TKey, TValue>? dict, Action<TKey, TValue>? action)
+            where TKey : notnull
+        {
+            if (dict == null || dict.Count == 0 || action == null) return;
+
+            using (LocalListPool<KeyValuePair<TKey, TValue>>.Get(out var snapshot))
+            {
+                // 直接 foreach Dictionary<TKey, TValue> 会调用 struct Enumerator，0 GC
+                foreach (var kvp in dict)
+                {
+                    snapshot.Add(kvp);
+                }
+
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    var kvp = snapshot[i];
+                    action(kvp.Key, kvp.Value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 安全遍历 Dictionary（传入 KeyValuePair，与原生 foreach 风格一致）
+        /// </summary>
+        public static void ForEachSafe<TKey, TValue>(this Dictionary<TKey, TValue>? dict, Action<KeyValuePair<TKey, TValue>>? action)
+            where TKey : notnull
+        {
+            if (dict == null || dict.Count == 0 || action == null) return;
+
+            using (LocalListPool<KeyValuePair<TKey, TValue>>.Get(out var snapshot))
+            {
+                foreach (var kvp in dict)
+                {
+                    snapshot.Add(kvp);
+                }
+
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    action(snapshot[i]);
+                }
+            }
+        }
+
+        //# ==================================
+        //# 安全遍历 (AsSafe 零 GC 包装器)
+        //# ==================================
+
+        public static SafeListEnumerable<T> AsSafe<T>(this IList<T>? list)
+            => new SafeListEnumerable<T>(list);
+
+        public static SafeHashSetEnumerable<T> AsSafe<T>(this HashSet<T>? set)
+            => new SafeHashSetEnumerable<T>(set);
+
+        public static SafeDictionaryEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>? dict)
+            where TKey : notnull
+            => new SafeDictionaryEnumerable<TKey, TValue>(dict);
+
+        // 如果经常只想安全遍历字典的 Key 或 Value（例如遍历时删除某些 Key）
+        public static SafeDictKeyEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>.KeyCollection? keys)
+            where TKey : notnull
+            => new SafeDictKeyEnumerable<TKey, TValue>(keys);
+
+        public static SafeDictValueEnumerable<TKey, TValue> AsSafe<TKey, TValue>(this Dictionary<TKey, TValue>.ValueCollection? values)
+            where TKey : notnull
+            => new SafeDictValueEnumerable<TKey, TValue>(values);
+
+        public readonly struct SafeListEnumerable<T>
+        {
+            private readonly IList<T>? _source;
+            public SafeListEnumerable(IList<T>? source) => _source = source;
+
+            public SafeSnapshotEnumerator<T> GetEnumerator()
+            {
+                if (_source == null || _source.Count == 0) return default;
+
+                var handle = LocalListPool<T>.Get(out var snapshot);
+                try
+                {
+                    if (snapshot.Capacity < _source.Count) snapshot.Capacity = _source.Count;
+                    for (int i = 0; i < _source.Count; i++)
+                    {
+                        snapshot.Add(_source[i]);
+                    }
+                    return new SafeSnapshotEnumerator<T>(handle, snapshot);
+                }
+                catch
+                {
+                    handle.Dispose();
+                    throw;
+                }
+            }
+        }
+
+        public readonly struct SafeHashSetEnumerable<T>
+        {
+            private readonly HashSet<T>? _source;
+            public SafeHashSetEnumerable(HashSet<T>? source) => _source = source;
+
+            public SafeSnapshotEnumerator<T> GetEnumerator()
+            {
+                if (_source == null || _source.Count == 0) return default;
+
+                var handle = LocalListPool<T>.Get(out var snapshot);
+                if (snapshot.Capacity < _source.Count) snapshot.Capacity = _source.Count;
+                foreach (var item in _source)
+                {
+                    snapshot.Add(item);
+                }
+                return new SafeSnapshotEnumerator<T>(handle, snapshot);
+            }
+        }
+
+        public readonly struct SafeDictionaryEnumerable<TKey, TValue> where TKey : notnull
+        {
+            private readonly Dictionary<TKey, TValue>? _source;
+            public SafeDictionaryEnumerable(Dictionary<TKey, TValue>? source) => _source = source;
+
+            public SafeSnapshotEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+            {
+                if (_source == null || _source.Count == 0) return default;
+
+                var handle = LocalListPool<KeyValuePair<TKey, TValue>>.Get(out var snapshot);
+                if (snapshot.Capacity < _source.Count) snapshot.Capacity = _source.Count;
+                foreach (var kvp in _source)
+                {
+                    snapshot.Add(kvp);
+                }
+                return new SafeSnapshotEnumerator<KeyValuePair<TKey, TValue>>(handle, snapshot);
+            }
+        }
+
+        public readonly struct SafeDictKeyEnumerable<TKey, TValue> where TKey : notnull
+        {
+            private readonly Dictionary<TKey, TValue>.KeyCollection? _source;
+            public SafeDictKeyEnumerable(Dictionary<TKey, TValue>.KeyCollection? source) => _source = source;
+
+            public SafeSnapshotEnumerator<TKey> GetEnumerator()
+            {
+                if (_source == null || _source.Count == 0) return default;
+
+                var handle = LocalListPool<TKey>.Get(out var snapshot);
+                if (snapshot.Capacity < _source.Count) snapshot.Capacity = _source.Count;
+                foreach (var key in _source)
+                {
+                    snapshot.Add(key);
+                }
+                return new SafeSnapshotEnumerator<TKey>(handle, snapshot);
+            }
+        }
+
+        public readonly struct SafeDictValueEnumerable<TKey, TValue> where TKey : notnull
+        {
+            private readonly Dictionary<TKey, TValue>.ValueCollection? _source;
+            public SafeDictValueEnumerable(Dictionary<TKey, TValue>.ValueCollection? source) => _source = source;
+
+            public SafeSnapshotEnumerator<TValue> GetEnumerator()
+            {
+                if (_source == null || _source.Count == 0) return default;
+
+                var handle = LocalListPool<TValue>.Get(out var snapshot);
+                if (snapshot.Capacity < _source.Count) snapshot.Capacity = _source.Count;
+                foreach (var value in _source)
+                {
+                    snapshot.Add(value);
+                }
+                return new SafeSnapshotEnumerator<TValue>(handle, snapshot);
+            }
+        }
+
+        /// <summary>
+        /// 通用的零 GC 快照枚举器（由各集合的 SafeEnumerable 共享）
+        /// </summary>
+        public struct SafeSnapshotEnumerator<T> : IDisposable
+        {
+            private LocalListPool<T>.PooledObject _poolHandle;
+            private readonly List<T>? _snapshot;
+            private int _index;
+
+            internal SafeSnapshotEnumerator(LocalListPool<T>.PooledObject poolHandle, List<T>? snapshot)
+            {
+                _poolHandle = poolHandle;
+                _snapshot = snapshot;
+                _index = -1;
+            }
+
+            public T Current => _snapshot![_index];
+
+            public bool MoveNext()
+            {
+                if (_snapshot == null) return false;
+                return ++_index < _snapshot.Count;
+            }
+
+            public void Dispose()
+            {
+                if (_snapshot != null)
+                {
+                    _poolHandle.Dispose();
                 }
             }
         }
@@ -478,9 +561,8 @@ namespace DX.Core.Extensions.List
                 return pooledSet.Overlaps(targets);
             }
         }
-
     }
-
+    //! =====================================
     public static class ListRandomExtensions
     {
         /// <summary>
@@ -728,7 +810,7 @@ namespace DX.Core.Extensions.List
             }
         }
     }
-
+    //! =====================================
     public static class ListPopExtensions
     {
         /// <summary>
@@ -776,6 +858,93 @@ namespace DX.Core.Extensions.List
             }
 
             return grabbedList;
+        }
+    }
+    //! =====================================
+
+    /// <summary>
+    /// 基于线程静态缓存的极简 List 池（每个线程独立持有缓存，保证多线程安全且零锁开销）
+    /// </summary>
+    internal static class LocalListPool<T>
+    {
+        private const int MaxCapacity = 256; // 超过则不回收
+        private const int MaxPooled = 16;    // 每线程最多缓存的列表数
+
+        [ThreadStatic]
+        private static Stack<List<T>>? _pool;
+
+        public readonly struct PooledObject : IDisposable
+        {
+            private readonly List<T>? _list;
+            public PooledObject(List<T> list) => _list = list;
+
+            public void Dispose()
+            {
+                var list = _list;
+                if (list == null) return;
+
+                list.Clear();
+                if (list.Capacity > MaxCapacity) return; // 直接丢弃，不再分配新数组
+
+                var pool = _pool ??= new Stack<List<T>>();
+#if DEBUG
+                if (pool.Contains(list))
+                    throw new InvalidOperationException("LocalListPool: 同一个 List 被重复归还");
+#endif
+                if (pool.Count < MaxPooled) pool.Push(list);
+            }
+        }
+
+        public static PooledObject Get(out List<T> list)
+        {
+            var pool = _pool;
+            list = (pool != null && pool.Count > 0) ? pool.Pop() : new List<T>();
+            list.Clear();
+            return new PooledObject(list);
+        }
+    }
+
+    /// <summary>
+    /// 基于线程静态缓存的极简 HashSet 池
+    /// </summary>
+    internal static class LocalHashSetPool<T>
+    {
+        private const int MaxCount = 256;   // 归还时元素数超过则丢弃
+        private const int MaxPooled = 16;   // 每线程最多缓存的集合数
+
+        [ThreadStatic]
+        private static Stack<HashSet<T>>? _pool;
+
+        public readonly struct PooledObject : IDisposable
+        {
+            private readonly HashSet<T>? _set;
+            public PooledObject(HashSet<T> set) => _set = set;
+
+            public void Dispose()
+            {
+                var set = _set;
+                if (set == null) return;
+
+                // 必须在 Clear 之前取 Count
+                bool tooLarge = set.Count > MaxCount;
+                set.Clear();
+                if (tooLarge) return; // 丢弃，交给 GC
+
+                var pool = _pool ??= new Stack<HashSet<T>>();
+#if DEBUG
+                if (pool.Contains(set))
+                    throw new InvalidOperationException("LocalHashSetPool: 同一个 HashSet 被重复归还");
+#endif
+                if (pool.Count < MaxPooled) pool.Push(set);
+            }
+        }
+
+        public static PooledObject Get(out HashSet<T> set)
+        {
+            var pool = _pool;
+            set = (pool != null && pool.Count > 0) ? pool.Pop() : new HashSet<T>();
+            set.Clear();
+            return new PooledObject(set);
         }
     }
 
