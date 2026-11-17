@@ -17,6 +17,7 @@ namespace DX.Core.Addressable
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void AutoReset()
         {
+            _handles.Clear();
             _isCatalogInitialized = false;
             _lastUnloadFrame = -10;
         }
@@ -480,7 +481,7 @@ namespace DX.Core.Addressable
         //!===================================================
 
         /// <summary>
-        /// 同步获取已加载的资产，需要先执行 PreloadAssets / LoadAssetsByLabel
+        /// 同步获取已加载的资产
         /// </summary>
         public static T GetLoaded<T>(string address) where T : Object
         {
@@ -509,22 +510,155 @@ namespace DX.Core.Addressable
         }
 
         /// <summary>
-        /// 根据 Label 批量加载某一类的所有资产
+        /// 按 Label 批量预加载资产（不限类型，适合混合类型标签；若需加载 Sprite 请使用泛型版本 PreloadByLabel&lt;Sprite&gt;）
         /// </summary>
-        public static async UniTask<IList<T>> LoadAssetsByLabel<T>(string label, CancellationToken ct = default) where T : Object
+        public static UniTask PreloadByLabel(string label, IProgress<float> progress = null, CancellationToken ct = default)
         {
-            // Addressables 原生支持传入 Label 进行批量加载
-            var handle = Addressables.LoadAssetsAsync<T>(label, null);
+            return PreloadByLabel<Object>(label, progress, ct);
+        }
 
-            await handle.ToUniTask(cancellationToken: ct);
-
-            if (handle.Status == AsyncOperationStatus.Succeeded)
+        /// <summary>
+        /// 按 Label 批量预加载指定类型的资产（加载后可通过 GetLoaded 获取）
+        /// </summary>
+        public static async UniTask PreloadByLabel<T>(string label, IProgress<float> progress = null, CancellationToken ct = default) where T : Object
+        {
+            if (string.IsNullOrEmpty(label))
             {
-                return handle.Result;
+                Debug.LogError("[AssetLoader] PreloadByLabel 失败：Label 不能为空");
+                return;
             }
 
-            Debug.LogError($"[AssetLoader] 按标签加载失败: {label}");
-            return null;
+            var locHandle = Addressables.LoadResourceLocationsAsync(label, typeof(T));
+            try
+            {
+                await locHandle.ToUniTask(cancellationToken: ct);
+                if (locHandle.Status != AsyncOperationStatus.Succeeded)
+                {
+                    Debug.LogError($"[AssetLoader] 按标签获取资源位置失败: {label}");
+                    return;
+                }
+
+                var keys = new HashSet<string>();
+                foreach (var location in locHandle.Result)
+                {
+                    if (location != null && !string.IsNullOrEmpty(location.PrimaryKey))
+                    {
+                        keys.Add(location.PrimaryKey);
+                    }
+                }
+
+                if (keys.Count == 0)
+                {
+                    Debug.LogError($"[AssetLoader] 未在标签 '{label}' 下找到类型为 '{typeof(T).Name}' 的资源（请检查标签名是否拼写错误或资源类型是否匹配）");
+                    progress?.Report(1f);
+                    return;
+                }
+
+                int total = keys.Count;
+                int completed = 0;
+                var tasks = new List<UniTask>(total);
+
+                foreach (var key in keys)
+                {
+                    tasks.Add(LoadWithProgressAsync(key));
+                }
+
+                await UniTask.WhenAll(tasks);
+
+                async UniTask LoadWithProgressAsync(string key)
+                {
+                    await LoadAsync<T>(key, ct);
+                    int done = Interlocked.Increment(ref completed);
+                    progress?.Report((float)done / total);
+                }
+            }
+            finally
+            {
+                if (locHandle.IsValid())
+                {
+                    Addressables.Release(locHandle);
+                }
+            }
+        }
+
+        public static async UniTask<IList<T>> LoadAssetsByLabel<T>(string label, CancellationToken ct = default) where T : Object
+        {
+            if (string.IsNullOrEmpty(label)) return Array.Empty<T>();
+
+            var locHandle = Addressables.LoadResourceLocationsAsync(label, typeof(T));
+            try
+            {
+                await locHandle.ToUniTask(cancellationToken: ct);
+                if (locHandle.Status != AsyncOperationStatus.Succeeded)
+                {
+                    Debug.LogError($"[AssetLoader] 按标签加载失败: {label}");
+                    return null;
+                }
+
+                var keys = new HashSet<string>();
+                foreach (var location in locHandle.Result)
+                {
+                    if (location != null && !string.IsNullOrEmpty(location.PrimaryKey))
+                    {
+                        keys.Add(location.PrimaryKey);
+                    }
+                }
+
+                var tasks = new List<UniTask<T>>(keys.Count);
+                foreach (var key in keys)
+                {
+                    tasks.Add(LoadAsync<T>(key, ct));
+                }
+
+                return await UniTask.WhenAll(tasks);
+            }
+            finally
+            {
+                if (locHandle.IsValid())
+                {
+                    Addressables.Release(locHandle);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 按 Label 卸载所有已加载的资产（无论之前是否通过 Label 加载，只要通过普通加载进了 _handles 都能卸载）
+        /// </summary>
+        public static void UnloadByLabel(string label)
+        {
+            UnloadByLabel(label, null);
+        }
+
+        /// <summary>
+        /// 按 Label 卸载指定类型的已加载资产
+        /// </summary>
+        public static void UnloadByLabel<T>(string label) where T : Object
+        {
+            UnloadByLabel(label, typeof(T));
+        }
+
+        private static void UnloadByLabel(string label, Type type)
+        {
+            if (_handles.Count == 0 || string.IsNullOrEmpty(label)) return;
+
+            EnsureCatalogInitialized();
+
+            foreach (var locator in Addressables.ResourceLocators)
+            {
+                if (locator.Locate(label, type, out var locations) && locations != null)
+                {
+                    foreach (var location in locations)
+                    {
+                        if (location == null || string.IsNullOrEmpty(location.PrimaryKey)) continue;
+
+                        if (_handles.ContainsKey(location.PrimaryKey))
+                        {
+                            Unload(location.PrimaryKey);
+                            if (_handles.Count == 0) return;
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
