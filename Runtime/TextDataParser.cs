@@ -561,8 +561,25 @@ namespace DX.Core.TextDriven
 
         public static object ConvertValue(string rawValue, Type targetType, int lineNumber = -1)
         {
+            // 1. 防止 rawValue 为 null 时 Trim 报错
+            if (rawValue == null)
+            {
+                if (targetType.IsValueType && Nullable.GetUnderlyingType(targetType) == null)
+                    return Activator.CreateInstance(targetType);
+                return null;
+            }
+
             rawValue = rawValue.Trim();
 
+            // 2. 支持 Nullable<T>（如 int?、float?、MyEnum?）：空串或 "null" 直接返回 null
+            Type underlyingType = Nullable.GetUnderlyingType(targetType);
+            if (underlyingType != null)
+            {
+                if (string.IsNullOrEmpty(rawValue) || rawValue.Equals("null", StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                targetType = underlyingType;
+            }
             try
             {
 
@@ -1812,12 +1829,39 @@ namespace DX.Core.TextDriven
     {
         // <summary>
         /// 安全读取指定索引的值：如果索引越界或转换失败，则返回预设的默认值
+        /// string: 为空或空白字符则返回默认值
         /// </summary>
         public static T GetOrDefault<T>(this TextRow row, int index, T defaultValue = default)
         {
             if (row == null || index < 0 || index >= row.Count)
                 return defaultValue;
 
+            string raw = row[index];
+
+            if (typeof(T) == typeof(string))
+            {
+                return string.IsNullOrWhiteSpace(raw) ? defaultValue : (T)(object)raw;
+            }
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return defaultValue;
+            }
+
+            string trimmed = raw.Trim();
+            if (typeof(T) == typeof(int))
+                return int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v)
+                    ? (T)(object)v : defaultValue;
+
+            if (typeof(T) == typeof(float))
+                return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+                    ? (T)(object)v : defaultValue;
+
+            if (typeof(T) == typeof(bool))
+                return bool.TryParse(trimmed, out bool v)
+                    ? (T)(object)v : defaultValue;
+
+            // 其余复杂类型（Vector3 / Enum / 数组等）兜底走原逻辑
             try
             {
                 return row.Get<T>(index);
@@ -1827,6 +1871,7 @@ namespace DX.Core.TextDriven
                 return defaultValue;
             }
         }
+
         /// <summary>
         /// 获取从 startIndex 开始一直到末尾的所有剩余元素，并转为强类型数组 T[]
         /// 例如: row.GetTailFrom<string>(2) 可以一口气获取第 2 列及之后的所有标签
