@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Threading;
 using DX.Core.App;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
+using UnityEngine.Pool;
 
 namespace DX.Core.Input
 {
@@ -415,9 +417,43 @@ namespace DX.Core.Input
     /// </summary>
     public static class GameInput
     {
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void AutoReset()
+        {
+            s_EventData = null;
+            s_EventSystem = null;
+            Binder = null;
+        }
         public static IInputService Binder { get; internal set; }
 
         public static Vector2 PointerPosition => Pointer.current?.position.ReadValue() ?? Vector2.zero;
+
+        private static PointerEventData s_EventData;
+        private static EventSystem s_EventSystem;
+
+        /// <summary> 
+        /// 判定鼠标是否在 UI 上，可在回调中使用，代替 EventSystems.EventSystem:IsPointerOverGameObject()
+        /// </summary>
+        public static bool IsPointerOverUI()
+        {
+            var pointer = Pointer.current;
+            var es = EventSystem.current;
+            if (pointer == null || es == null) return false;
+
+            // EventSystem 变化（如切换场景）时重建缓存
+            if (s_EventData == null || s_EventSystem != es)
+            {
+                s_EventSystem = es;
+                s_EventData = new PointerEventData(es);
+            }
+            s_EventData.position = pointer.position.ReadValue();
+
+            using (ListPool<RaycastResult>.Get(out var results))
+            {
+                es.RaycastAll(s_EventData, results);
+                return results.Count > 0;
+            }
+        }
 
         // 鼠标/触屏检测
         public static bool GetPointerDown() => Pointer.current != null && Pointer.current.press.wasPressedThisFrame;
@@ -433,6 +469,7 @@ namespace DX.Core.Input
         public static bool GetKeyDown(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasPressedThisFrame;
         public static bool IsKeyPressed(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.isPressed;
         public static bool GetKeyUp(string keyName) => Keyboard.current != null && Keyboard.current[keyName] is ButtonControl button && button.wasReleasedThisFrame;
+
     }
 
     public static class InputExtensions
