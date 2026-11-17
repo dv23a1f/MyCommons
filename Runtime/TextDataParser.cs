@@ -448,8 +448,13 @@ namespace DX.Core.TextDriven
         public static List<string> SplitLine(string line)
         {
             List<string> tokens = new List<string>();
-            StringBuilder currentToken = new StringBuilder();
+            // 1. 入口防护：空行或纯空白行直接返回 0 个元素
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return tokens;
+            }
 
+            StringBuilder currentToken = new StringBuilder();
             bool inQuotes = false;
             int parenDepth = 0;
 
@@ -463,10 +468,9 @@ namespace DX.Core.TextDriven
                     char nextChar = line[i + 1];
                     if (nextChar == '\"' || nextChar == '\\')
                     {
-                        // 连同反斜杠一起先存进去，保留给 CleanToken 做还原
                         currentToken.Append(c);
                         currentToken.Append(nextChar);
-                        i++; // 跳过下一个字符
+                        i++;
                         continue;
                     }
                 }
@@ -474,8 +478,8 @@ namespace DX.Core.TextDriven
                 // ===== 核心优化 2: 处理标准 CSV 规范的连续双引号 "" =====
                 if (c == '\"' && inQuotes && i + 1 < line.Length && line[i + 1] == '\"')
                 {
-                    currentToken.Append("\"\""); // 记为双引号字面量
-                    i++; // 跳过下一个双引号
+                    currentToken.Append("\"\"");
+                    i++;
                     continue;
                 }
 
@@ -515,10 +519,8 @@ namespace DX.Core.TextDriven
                 throw new FormatException($"行解析失败：存在未闭合的括号 -> {line}");
             }
 
-            if (currentToken.Length > 0)
-            {
-                tokens.Add(CleanToken(currentToken.ToString()));
-            }
+            // 2. 只要原字符串非空（包含逗号或有效字符），最后一段（哪怕是空串）也必须作为最后一个元素补入
+            tokens.Add(CleanToken(currentToken.ToString()));
 
             return tokens;
         }
@@ -1831,7 +1833,7 @@ namespace DX.Core.TextDriven
         /// </summary>
         public static T[] GetTailFrom<T>(this TextRow row, int startIndex)
         {
-            if (row == null || startIndex >= row.Count)
+            if (row == null || startIndex < 0 || startIndex >= row.Count)
                 return Array.Empty<T>();
 
             int count = row.Count - startIndex;
