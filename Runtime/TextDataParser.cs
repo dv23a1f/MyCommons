@@ -143,37 +143,32 @@ namespace DX.Core.TextDriven
             new Regex(@"(?:\{\$|\$\{)([a-zA-Z0-9_\.]+)\}", RegexOptions.Compiled);
 
         /// <summary>
-        /// 将 Inspector 配置的单个文本字符串直接解析为目标强类型 T。
-        /// 自动支持：
-        /// 1. 基础类型、枚举与 Unity 结构体（int, float, Enum, Vector2/3/4, Color, Quaternion 等）
-        /// 2. 数组格式："(1, 2, 3)" 或 "[1, 2, 3]"
-        /// 3. 黑板动态变量与表达式（如 "$Player.Hp + 10"、"$Gold >= 100"）
+        /// 解析单行文本指令（适用于 Inspector 配置、动态单条指令等）
+        /// 若为空白行或注释行（# / // 开头），返回 null
         /// </summary>
-        /// <typeparam name="T">目标强类型</typeparam>
-        /// <param name="rawValue">Inspector 填写的原始字符串</param>
-        /// <param name="provider">黑板数据上下文（仅当表达式中包含 '$' 变量时才必须传入）</param>
-        public static T Parse<T>(string rawValue, IVariableProvider provider = null)
+        public static TextRow ParseRow(
+            string line,
+            int lineNumber = 1,
+            int rowIndex = 0,
+            IVariableProvider provider = null)
         {
-            if (string.IsNullOrWhiteSpace(rawValue)) { return default; }
+            if (string.IsNullOrWhiteSpace(line))
+                return null;
 
-            string trimmed = rawValue.Trim();
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith("#") || trimmed.StartsWith("//"))
+                return null;
 
-            // 如果包含动态变量标识符 '$'
-            if (trimmed.Contains("$"))
+            List<string> tokens = SplitLine(trimmed);
+            if (tokens.Count == 0)
+                return null;
+
+            var row = new TextRow(rowIndex, lineNumber, tokens.ToArray())
             {
-                if (provider == null)
-                {
-                    throw new ArgumentNullException(nameof(provider),
-                        $"表达式 \"{trimmed}\" 包含黑板变量 ('$')，但未提供有效的 IVariableProvider 上下文！");
-                }
-
-                return ExpressionParser.Compile<T>(trimmed).Invoke(provider);
-            }
-
-            // 纯静态字面量解析（支持各种结构体、枚举、基本类型、数组）
-            return (T)ConvertValue(trimmed, typeof(T));
+                Provider = provider
+            };
+            return row;
         }
-
         /// <summary>
         /// 合并多个纯文本脚本内容为一个完整的文本文档字符串
         /// </summary>
