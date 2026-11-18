@@ -2943,8 +2943,18 @@ namespace DX.Core.SaveManagement.Internal
 
         private static string ExtractCleanTypeName(string typeIdentifier)
         {
-            int commaIndex = typeIdentifier.IndexOf(',');
-            return (commaIndex > 0 ? typeIdentifier.Substring(0, commaIndex) : typeIdentifier).Trim();
+            int bracketDepth = 0;
+            for (int i = 0; i < typeIdentifier.Length; i++)
+            {
+                char c = typeIdentifier[i];
+                if (c == '[') bracketDepth++;
+                else if (c == ']' && bracketDepth > 0) bracketDepth--;
+                else if (c == ',' && bracketDepth == 0)
+                {
+                    return typeIdentifier.Substring(0, i).Trim();
+                }
+            }
+            return typeIdentifier.Trim();
         }
 
         private static string SimplifyAssemblyName(string fullSignature)
@@ -3390,22 +3400,101 @@ namespace DX.Core.SaveManagement.Internal
             if (packedValue is IDictionary<string, object> dict)
             {
                 // 1. 判断是否命中万能包装结构 {"$type": ..., "$val": ...}
-                if (dict.TryGetValue(SaveContract.TYPE_TAG, out var typeId) && dict.TryGetValue(SaveContract.VAL_TAG, out var rawVal))
+                if (dict.TryGetValue(SaveContract.TYPE_TAG, out var typeId) &&
+                    dict.TryGetValue(SaveContract.VAL_TAG, out var rawVal))
                 {
                     var realType = SaveTypeRegistry.ResolveType(typeId?.ToString());
-                    return realType != null ? SaveConvert.To(rawVal, realType) : rawVal;
+                    if (realType != null)
+                    {
+                        var unpacked = Unpack(rawVal, realType);
+                        return realType.IsInstanceOfType(unpacked) ? unpacked : SaveConvert.To(unpacked, realType);
+                    }
+                    return rawVal;
                 }
 
-                // 2. 容器字典递归还原
-                var resultDict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
-                resultDict.Clear();
-                Type valueType = targetType.IsGenericType ? targetType.GetGenericArguments()[1] : typeof(object);
-
-                foreach (var kv in dict)
+                // 2. 容器字典递归还原（补充对非 string Key 与抽象/object 目标类型的兼容）
+                if (typeof(System.Collections.IDictionary).IsAssignableFrom(targetType) || targetType == typeof(object))
                 {
-                    resultDict[kv.Key] = Unpack(kv.Value, valueType);
+                    Type keyType = typeof(string);
+                    Type valueType = typeof(object);
+                    if (targetType.IsGenericType)
+                    {
+                        var args = targetType.GetGenericArguments();
+                        if (args.Length >= 2)
+                        {
+                            keyType = args[0];
+                            valueType = args[1];
+                        }
+                    }
+
+                    Type dictType = (targetType == typeof(object) || targetType.IsInterface || targetType.IsAbstract)
+                        ? typeof(Dictionary<,>).MakeGenericType(keyType, valueType)
+                        : targetType;
+
+                    var resultDict = (System.Collections.IDictionary)Activator.CreateInstance(dictType);
+                    resultDict.Clear();
+
+                    foreach (var kv in dict)
+                    {
+                        object finalKey = keyType == typeof(string) ? kv.Key : SaveConvert.To(kv.Key, keyType);
+                        object finalVal = Unpack(kv.Value, valueType);
+                        if (finalVal != null && !valueType.IsInstanceOfType(finalVal))
+                        {
+                            finalVal = SaveConvert.To(finalVal, valueType);
+                        }
+                        resultDict[finalKey] = finalVal;
+                    }
+                    return resultDict;
                 }
-                return resultDict;
+            }
+
+            // 3. 新增：处理内存同步时的 IList / 数组 解包
+            if (packedValue is System.Collections.IList list)
+            {
+                Type elementType = typeof(object);
+                if (targetType.IsArray)
+                {
+                    elementType = targetType.GetElementType() ?? typeof(object);
+                }
+                else if (targetType.IsGenericType)
+                {
+                    elementType = targetType.GetGenericArguments()[0];
+                }
+
+                // 3.1 数组（不可用 Activator.CreateInstance 创建数组）
+                if (targetType.IsArray)
+                {
+                    var array = Array.CreateInstance(elementType, list.Count);
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        object item = Unpack(list[i], elementType);
+                        if (item != null && !elementType.IsInstanceOfType(item))
+                        {
+                            item = SaveConvert.To(item, elementType);
+                        }
+                        array.SetValue(item, i);
+                    }
+                    return array;
+                }
+
+                // 3.2 List<T> / IList<T> / object
+                Type listType = (targetType == typeof(object) || targetType.IsInterface || targetType.IsAbstract)
+                    ? typeof(List<>).MakeGenericType(elementType)
+                    : targetType;
+
+                var resultList = (System.Collections.IList)Activator.CreateInstance(listType);
+                resultList.Clear();
+
+                foreach (var rawItem in list)
+                {
+                    object item = Unpack(rawItem, elementType);
+                    if (item != null && !elementType.IsInstanceOfType(item))
+                    {
+                        item = SaveConvert.To(item, elementType);
+                    }
+                    resultList.Add(item);
+                }
+                return resultList;
             }
 
             return packedValue;
@@ -3452,16 +3541,34 @@ namespace DX.Core.SaveManagement.Internal
             // ================= 2. 补全列表/数组解包 =================
             if (typeof(System.Collections.IList).IsAssignableFrom(targetType) && token is JArray jArray)
             {
-                var resultList = (System.Collections.IList)Activator.CreateInstance(targetType);
-                resultList.Clear();
+                if (targetType.IsArray)
+                {
+                    Type elementType = targetType.GetElementType() ?? typeof(object);
+                    var array = Array.CreateInstance(elementType, jArray.Count);
+                    for (int i = 0; i < jArray.Count; i++)
+                    {
+                        object item = UnpackJToken(jArray[i], elementType);
+                        if (item != null && !elementType.IsInstanceOfType(item))
+                            item = SaveConvert.To(item, elementType);
+                        array.SetValue(item, i);
+                    }
+                    return array;
+                }
 
-                // 获取列表元素的泛型类型（如 ITestItem）
-                Type elementType = targetType.IsGenericType ? targetType.GetGenericArguments()[0] : typeof(object);
+                Type listElementType = targetType.IsGenericType ? targetType.GetGenericArguments()[0] : typeof(object);
+                Type listType = (targetType.IsInterface || targetType.IsAbstract)
+                    ? typeof(List<>).MakeGenericType(listElementType)
+                    : targetType;
+
+                var resultList = (System.Collections.IList)Activator.CreateInstance(listType);
+                resultList.Clear();
 
                 foreach (var itemToken in jArray)
                 {
-                    // 递归解包每个元素！
-                    resultList.Add(UnpackJToken(itemToken, elementType));
+                    object item = UnpackJToken(itemToken, listElementType);
+                    if (item != null && !listElementType.IsInstanceOfType(item))
+                        item = SaveConvert.To(item, listElementType);
+                    resultList.Add(item);
                 }
                 return resultList;
             }
