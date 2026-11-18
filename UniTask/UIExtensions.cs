@@ -148,10 +148,17 @@ namespace DX.Core.Extensions.UI
             cancellationToken = BindableInternalUtility.LinkTokenSafely(component.GetCancellationTokenOnDestroy(), customCt);
         }
 
+        public EventBindableScope(MonoBehaviour mono, CancellationToken customCt = default)
+        {
+            if (mono == null) throw new ArgumentNullException(nameof(mono));
+            gameObject = mono.gameObject;
+            cancellationToken = BindableInternalUtility.LinkTokenSafely(mono.destroyCancellationToken, customCt);
+        }
+
         /// <summary>
         /// 一键控制当前物体上所有已挂载的 Dispatcher 的启用/禁用
         /// </summary>
-        bool IEventBindable.Interactable
+        public bool Interactable
         {
             get
             {
@@ -889,29 +896,39 @@ namespace DX.Core.Extensions.UI
         }
 
         /// <summary>
-        /// 为 Button 添加右键点击事件监听（携带 PointerEventData，常用于根据鼠标坐标弹出右键菜单）
+        /// 为 Button 添加成对的悬停监听（自动配对 Enter/Exit 状态，防止悬停期间按钮被置灰或失活导致丢失 Exit 回调）
         /// </summary>
-        /// <param name="button">目标按钮</param>
-        /// <param name="action">右键点击回调（携带 PointerEventData）</param>
-        /// <param name="cancellationToken">外部取消令牌</param>
-        public static void AddRightClickListener(
+        public static void AddHoverListener(
             this Button button,
-            Action<PointerEventData> action,
+            UnityAction onEnter,
+            UnityAction onExit,
+            bool requireInteractable = true,
             CancellationToken cancellationToken = default)
         {
             if (button == null) throw new ArgumentNullException(nameof(button));
-            if (action == null) throw new ArgumentNullException(nameof(action));
+            if (onEnter == null && onExit == null) return;
             if (cancellationToken.IsCancellationRequested) return;
 
             var managedToken = CreateManagedToken(button, cancellationToken);
+            bool isHovered = false;
 
             button.AsEventBindable(managedToken)
-                .OnPointerClick(
-                    action,
-                    filter: eventData => button.enabled && button.interactable && eventData.button == PointerEventData.InputButton.Right
-                );
-        }
+                .OnPointerEnter(_ =>
+                {
+                    if (requireInteractable && (!button.enabled || !button.interactable)) return;
+                    if (isHovered) return;
 
+                    isHovered = true;
+                    onEnter?.Invoke();
+                })
+                .OnPointerExit(_ =>
+                {
+                    if (!isHovered) return;
+
+                    isHovered = false;
+                    onExit?.Invoke();
+                });
+        }
         /// <summary>
         /// 为原生 Button 扩展长按监听
         /// </summary>
