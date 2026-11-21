@@ -929,6 +929,24 @@ namespace DX.Core.Extensions.UI
                     onExit?.Invoke();
                 });
         }
+
+        /// <summary>
+        /// 为 Button 添加悬停状态变化监听（true 为进入，false 为离开）
+        /// </summary>
+        public static void AddHoverListener(
+            this Button button,
+            Action<bool> onHoverChanged,
+            bool requireInteractable = true,
+            CancellationToken cancellationToken = default)
+        {
+            if (onHoverChanged == null) throw new ArgumentNullException(nameof(onHoverChanged));
+
+            button.AddHoverListener(
+                () => onHoverChanged(true),
+                () => onHoverChanged(false),
+                requireInteractable,
+                cancellationToken);
+        }
         /// <summary>
         /// 为原生 Button 扩展长按监听
         /// </summary>
