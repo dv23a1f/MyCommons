@@ -1311,8 +1311,13 @@ namespace DX.Core.SaveManagement
             // 3. 逐个落盘
             foreach (var fileName in allGlobalFiles)
             {
-                success |= SaveSingleGlobalInternal(fileName);
+                if (SaveSingleGlobalInternal(fileName))
+                {
+                    success |= true;
+                    _eventHub.Publish(SaveEventType.GlobalSaved, fileName);
+                }
             }
+
             return success;
         }
 
@@ -1358,7 +1363,6 @@ namespace DX.Core.SaveManagement
                 Debug.Log($"<color=green>[SaveSystem]</color> <color=white>[{fileName}]</color> 已存档");
             }
 
-            _eventHub.Publish(SaveEventType.GlobalSaved, fileName);
             return saveResult;
         }
 
@@ -1777,9 +1781,6 @@ namespace DX.Core.SaveManagement.Storage
         /// <summary> 是否生成 .bak 备份文件 </summary>
         public bool CreateBackup { get; }
 
-        /// <summary> 是否通过后台线程写入（异步优化扩展预留） </summary>
-        public bool WriteAsync { get; }
-
         /// <summary> 是否对存档执行压缩加密 </summary>
         public bool Encrypt { get; }
 
@@ -1788,14 +1789,12 @@ namespace DX.Core.SaveManagement.Storage
             SavePack pack,
             bool checkDirty = false,
             bool createBackup = false,
-            bool encrypt = false,
-            bool writeAsync = false)
+            bool encrypt = false)
         {
             Pack = pack;
             CheckDirty = checkDirty;
             CreateBackup = createBackup;
             Encrypt = encrypt;
-            WriteAsync = writeAsync;
         }
 
         // 隐式转换：允许直接把 SavePack 传给需要 SaveRequest 的接口（使用全套默认参数）
