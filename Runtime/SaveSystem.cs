@@ -1285,8 +1285,11 @@ namespace DX.Core.SaveManagement
             // 1. 如果指定了特定文件，仅保存该文件
             if (!string.IsNullOrEmpty(targetFileName))
             {
-                success |= SaveSingleGlobalInternal(targetFileName);
-                if (success) _eventHub.Publish(SaveEventType.GlobalSaved, targetFileName);
+                if (SaveSingleGlobalInternal(targetFileName))
+                {
+                    success = true;
+                    _eventHub.Publish(SaveEventType.GlobalSaved, targetFileName);
+                }
                 return success;
             }
 
@@ -1308,13 +1311,17 @@ namespace DX.Core.SaveManagement
                 }
             }
 
+            success = allGlobalFiles.Count > 0;
             // 3. 逐个落盘
             foreach (var fileName in allGlobalFiles)
             {
                 if (SaveSingleGlobalInternal(fileName))
                 {
-                    success |= true;
                     _eventHub.Publish(SaveEventType.GlobalSaved, fileName);
+                }
+                else
+                {
+                    success = false;
                 }
             }
 
