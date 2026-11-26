@@ -94,7 +94,19 @@ namespace DX.Core.ReactiveVariable
 
             if (hasToken)
             {
-                reg = ct.Register(() => _onValueChangedListener -= onValueChanged);
+                reg = ct.Register(() =>
+                {
+                    _onValueChangedListener -= onValueChanged;
+                    _tokenRegistrations?.Remove(reg);
+                });
+
+                if (ct.IsCancellationRequested)
+                {
+                    reg.Dispose();
+                    _onValueChangedListener -= onValueChanged;
+                    return new ActionDisposable(null);
+                }
+
                 _tokenRegistrations ??= new List<CancellationTokenRegistration>();
                 _tokenRegistrations.Add(reg);
             }
