@@ -15,27 +15,27 @@ namespace DX.Core.Attributes.Editor
         public int callbackOrder => 0;
 
         // 缓存：记录哪些类定义了 [AutoGetComponent] 字段，每次脚本编译后自动重置
-        private static Dictionary<Type, List<(FieldInfo field, AutoGetComponentAttribute attr)>> _cachedFieldsMap;
+        private static Dictionary<Type, List<(FieldInfo field, AutoGetAttribute attr)>> _cachedFieldsMap;
 
-        private static Dictionary<Type, List<(FieldInfo field, AutoGetComponentAttribute attr)>> GetFieldsMap()
+        private static Dictionary<Type, List<(FieldInfo field, AutoGetAttribute attr)>> GetFieldsMap()
         {
             if (_cachedFieldsMap != null) return _cachedFieldsMap;
 
-            _cachedFieldsMap = new Dictionary<Type, List<(FieldInfo, AutoGetComponentAttribute)>>();
+            _cachedFieldsMap = new Dictionary<Type, List<(FieldInfo, AutoGetAttribute)>>();
 
             // 核心优化：使用 Unity 原生索引 TypeCache，耗时 < 0.1ms，无 GC
-            foreach (FieldInfo field in TypeCache.GetFieldsWithAttribute<AutoGetComponentAttribute>())
+            foreach (FieldInfo field in TypeCache.GetFieldsWithAttribute<AutoGetAttribute>())
             {
                 if (field.IsStatic || !typeof(Component).IsAssignableFrom(field.FieldType))
                     continue;
 
-                var attr = field.GetCustomAttribute<AutoGetComponentAttribute>();
+                var attr = field.GetCustomAttribute<AutoGetAttribute>();
                 var declaringType = field.DeclaringType;
                 if (declaringType == null) continue;
 
                 if (!_cachedFieldsMap.TryGetValue(declaringType, out var list))
                 {
-                    list = new List<(FieldInfo, AutoGetComponentAttribute)>();
+                    list = new List<(FieldInfo, AutoGetAttribute)>();
                     _cachedFieldsMap[declaringType] = list;
                 }
                 list.Add((field, attr));

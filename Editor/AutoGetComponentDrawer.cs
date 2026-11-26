@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace DX.Core.Attributes.Editor
 {
-    [CustomPropertyDrawer(typeof(AutoGetComponentAttribute))]
+    [CustomPropertyDrawer(typeof(AutoGetAttribute))]
     public class AutoGetComponentDrawer : PropertyDrawer
     {
         private const float HelpBoxHeight = 24f;
@@ -41,7 +41,7 @@ namespace DX.Core.Attributes.Editor
             {
                 if (property.serializedObject.targetObject is Component targetComponent)
                 {
-                    var attr = (AutoGetComponentAttribute)attribute;
+                    var attr = (AutoGetAttribute)attribute;
                     Component found = FindComponent(targetComponent, fieldInfo.FieldType, attr);
 
                     if (found != null)
@@ -78,7 +78,7 @@ namespace DX.Core.Attributes.Editor
                     position.width,
                     HelpBoxHeight
                 );
-                EditorGUI.HelpBox(helpBoxRect, $"未找到组件: {fieldInfo.FieldType.Name} ({((AutoGetComponentAttribute)attribute).Scope})", MessageType.Warning);
+                EditorGUI.HelpBox(helpBoxRect, $"未找到组件: {fieldInfo.FieldType.Name} ({((AutoGetAttribute)attribute).Scope})", MessageType.Warning);
             }
         }
 
@@ -94,7 +94,7 @@ namespace DX.Core.Attributes.Editor
         }
 
         // 抽离为 public static，方便后续供全局扫描脚本复用
-        public static Component FindComponent(Component target, Type componentType, AutoGetComponentAttribute attr)
+        public static Component FindComponent(Component target, Type componentType, AutoGetAttribute attr)
         {
             return attr.Scope switch
             {
