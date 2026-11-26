@@ -495,6 +495,10 @@ namespace DX.Core.Input
             {
                 effectiveToken = mono.destroyCancellationToken;
             }
+            else if (mono.destroyCancellationToken == customToken)
+            {
+                effectiveToken = mono.destroyCancellationToken;
+            }
             else
             {
                 var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
