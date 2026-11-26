@@ -1491,8 +1491,8 @@ namespace DX.Core.ReactiveStateMachine
         private bool _useReflection = true;
         /// <summary> 开启反射功能，关闭时可快速初始化，状态内Attribute会失效 (在初始化前设置)</summary>
         public bool UseReflection { get => _useReflection; set { if (_hasInitialized) return; _useReflection = value; } }
-        /// <summary>状态机销毁(Dispose)时是否自动执行停机流程(Stop/OnExit)。(默认 false)</summary>
-        public bool StopOnDispose { get; set; } = false;
+        /// <summary>状态机销毁(Dispose)时是否自动执行停机流程(Stop/OnExit)。</summary>
+        public bool StopOnDispose { get; set; } = true;
 
         // 代表 AnyState，匹配任意状态
         private static Type AnyStateKey => typeof(AnyState);
