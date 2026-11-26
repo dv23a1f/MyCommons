@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace DX.Core.Attributes
 {
-    public enum GetComponentScope
+    public enum ComponentScope
     {
         Self,
         InChildren,
@@ -15,10 +15,10 @@ namespace DX.Core.Attributes
     [AttributeUsage(AttributeTargets.Field)]
     public class AutoGetAttribute : PropertyAttribute
     {
-        public GetComponentScope Scope { get; }
+        public ComponentScope Scope { get; }
         public bool IncludeInactive { get; }
 
-        public AutoGetAttribute(GetComponentScope scope = GetComponentScope.Self, bool includeInactive = false)
+        public AutoGetAttribute(ComponentScope scope = ComponentScope.Self, bool includeInactive = false)
         {
             Scope = scope;
             IncludeInactive = includeInactive;

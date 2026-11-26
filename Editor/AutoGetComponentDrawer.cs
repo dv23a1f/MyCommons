@@ -98,9 +98,9 @@ namespace DX.Core.Attributes.Editor
         {
             return attr.Scope switch
             {
-                GetComponentScope.Self => target.GetComponent(componentType),
-                GetComponentScope.InChildren => target.GetComponentInChildren(componentType, attr.IncludeInactive),
-                GetComponentScope.InParent => target.GetComponentInParent(componentType, attr.IncludeInactive),
+                ComponentScope.Self => target.GetComponent(componentType),
+                ComponentScope.InChildren => target.GetComponentInChildren(componentType, attr.IncludeInactive),
+                ComponentScope.InParent => target.GetComponentInParent(componentType, attr.IncludeInactive),
                 _ => null
             };
         }
