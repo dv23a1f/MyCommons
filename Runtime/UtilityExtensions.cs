@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using DX.Core.App;
 using UnityEngine;
 using UnityEngine.Pool;
 using Debug = UnityEngine.Debug;
@@ -250,9 +251,22 @@ namespace DX.Core.Extensions
         }
     }
 
-    //# 反射检测null
     public static class MonoBehaviourExtensions
     {
+        /// <summary>
+        /// 应用正在退出，或该对象所在场景已卸载/正在卸载时返回 true。
+        /// 用于 OnDisable / OnDestroy 中跳过访问其他对象的清理逻辑。
+        /// </summary>
+        public static bool IsShuttingDown(this Component self)
+        {
+            if (AppLifecycle.IsQuitting) return true;
+
+            // 对象本身已被销毁（Unity 重载的 == null）
+            if (self == null) return true;
+
+            return !self.gameObject.scene.isLoaded;
+        }
+
         // 只在编辑器模式或勾选了 Development Build 时执行，正式打包（Release）会被完全剔除，零性能消耗
         [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
         public static void AssertFieldsNotNull(this MonoBehaviour monoBehaviour)
