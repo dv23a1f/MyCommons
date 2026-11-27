@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 
 #region InterfaceScanner
 
-namespace DX.Core.Utility.InterfaceScanner
+namespace DX.Core.Utility
 {
     public static class InterfaceScanner
     {
@@ -117,7 +117,7 @@ namespace DX.Core.Utility.InterfaceScanner
 
 #region SmoothDamp
 
-namespace DX.Core.Utility.SmoothDamp
+namespace DX.Core.Utility
 {
     [Serializable]
     public class SmoothDampVector3
@@ -164,6 +164,107 @@ namespace DX.Core.Utility.SmoothDamp
         {
             CurrentValue = value;
             Velocity = Vector3.zero;
+        }
+    }
+}
+#endregion
+
+#region Timer
+
+namespace DX.Core.Utility
+{
+    /// <summary>
+    /// 通用计时器：延迟执行 / 重复执行，支持暂停、恢复、取消，可选忽略 Time.timeScale。
+    /// 无需手动挂载，首次使用时自动创建驱动对象。
+    /// </summary>
+    public sealed class Timer
+    {
+        // ---------- 对外 API ----------
+
+        /// <summary>延迟 seconds 秒后执行一次。</summary>
+        public static Timer Delay(float seconds, Action onComplete, bool unscaled = false)
+            => Create(seconds, 1, null, onComplete, unscaled);
+
+        /// <summary>每隔 interval 秒执行一次；count &lt;= 0 表示无限循环。</summary>
+        public static Timer Repeat(float interval, Action onTick, int count = -1,
+                                   Action onComplete = null, bool unscaled = false)
+            => Create(interval, count, onTick, onComplete, unscaled);
+
+        public bool IsDone { get; private set; }
+        public bool IsPaused { get; private set; }
+        /// <summary>当前这一轮的进度 0~1。</summary>
+        public float Progress => Mathf.Clamp01(elapsed / interval);
+
+        public void Pause() => IsPaused = true;
+        public void Resume() => IsPaused = false;
+        public void Cancel() => IsDone = true;   // 取消，不会触发 onComplete
+
+        // ---------- 实现 ----------
+
+        readonly float interval;
+        readonly int repeat;
+        readonly bool unscaled;
+        readonly Action onTick, onComplete;
+        float elapsed;
+        int count;
+
+        Timer(float interval, int repeat, Action onTick, Action onComplete, bool unscaled)
+        {
+            this.interval = Mathf.Max(interval, 0.0001f);
+            this.repeat = repeat;
+            this.onTick = onTick;
+            this.onComplete = onComplete;
+            this.unscaled = unscaled;
+        }
+
+        static Timer Create(float interval, int repeat, Action onTick, Action onComplete, bool unscaled)
+        {
+            if (driver == null)
+            {
+                var go = new GameObject("[Timer]") { hideFlags = HideFlags.HideAndDontSave };
+                UnityEngine.Object.DontDestroyOnLoad(go);
+                driver = go.AddComponent<Driver>();
+            }
+            var t = new Timer(interval, repeat, onTick, onComplete, unscaled);
+            pending.Add(t);
+            return t;
+        }
+
+        void Update(float dt)
+        {
+            if (IsDone || IsPaused) return;
+            elapsed += dt;
+            while (elapsed >= interval && !IsDone)
+            {
+                elapsed -= interval;
+                onTick?.Invoke();
+                if (IsDone) break;                       // 回调里可能已 Cancel
+                if (repeat > 0 && ++count >= repeat)
+                {
+                    IsDone = true;
+                    onComplete?.Invoke();
+                }
+            }
+        }
+
+        static readonly List<Timer> timers = new List<Timer>();
+        static readonly List<Timer> pending = new List<Timer>();  // 回调中新建的计时器，下一帧生效
+        static Driver driver;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void Reset() { timers.Clear(); pending.Clear(); driver = null; }  // 兼容关闭域重载
+
+        [DisallowMultipleComponent]
+        sealed class Driver : MonoBehaviour
+        {
+            void Update()
+            {
+                if (pending.Count > 0) { timers.AddRange(pending); pending.Clear(); }
+                float dt = Time.deltaTime, udt = Time.unscaledDeltaTime;
+                for (int i = 0; i < timers.Count; i++)
+                    timers[i].Update(timers[i].unscaled ? udt : dt);
+                timers.RemoveAll(t => t.IsDone);
+            }
         }
     }
 }
