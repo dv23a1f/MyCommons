@@ -174,6 +174,11 @@ namespace DX.Core.Utility
 
 namespace DX.Core.Utility
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Threading;
+    using UnityEngine;
+
     /// <summary>
     /// 通用计时器：延迟执行 / 重复执行，支持暂停、恢复、取消，可选忽略 Time.timeScale。
     /// 无需手动挂载，首次使用时自动创建驱动对象。
@@ -226,7 +231,7 @@ namespace DX.Core.Utility
         {
             if (driver == null)
             {
-                var go = new GameObject("[Timer]") { hideFlags = HideFlags.HideAndDontSave };
+                var go = new GameObject("[Timer]") { hideFlags = HideFlags.HideInHierarchy };
                 UnityEngine.Object.DontDestroyOnLoad(go);
                 driver = go.AddComponent<Driver>();
             }
@@ -258,11 +263,18 @@ namespace DX.Core.Utility
         static readonly List<Timer> pending = new List<Timer>();  // 回调中新建的计时器，下一帧生效
         static Driver driver;
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void Reset() { timers.Clear(); pending.Clear(); driver = null; }  // 兼容关闭域重载
-
         sealed class Driver : MonoBehaviour
         {
+            // 退出播放模式 / 退出应用时：清理静态状态并销毁自身（兼容关闭域重载）
+            void Awake() => Application.quitting += OnQuit;
+
+            void OnQuit()
+            {
+                Application.quitting -= OnQuit;
+                timers.Clear(); pending.Clear(); driver = null;
+                Destroy(gameObject);
+            }
+
             void Update()
             {
                 if (pending.Count > 0) { timers.AddRange(pending); pending.Clear(); }
