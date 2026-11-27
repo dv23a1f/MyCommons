@@ -286,4 +286,72 @@ namespace DX.Core.Utility
         }
     }
 }
+
+namespace DX.Core.Utility
+{
+
+    using UnityEngine;
+
+    [System.Serializable]
+    public class Cooldown
+    {
+        [Tooltip("冷却总时长（秒）")]
+        public float duration = 1.0f;
+
+        private float nextReadyTime = 0f;
+        private float currentDuration = 0f;
+
+        public Cooldown() { }
+        public Cooldown(float duration)
+        {
+            this.duration = duration;
+        }
+
+        /// <summary>
+        /// 冷却是否已就绪
+        /// </summary>
+        public bool IsReady => Time.time >= nextReadyTime;
+
+        /// <summary>
+        /// 剩余冷却时间（秒）
+        /// </summary>
+        public float RemainingTime => Mathf.Max(0f, nextReadyTime - Time.time);
+
+        /// <summary>
+        /// 剩余进度（1 -> 0）：刚触发时为 1，冷却结束时为 0
+        /// （最适合直接赋值给技能图标遮罩的 Image.fillAmount）
+        /// </summary>
+        public float RemainingProgress
+        {
+            get
+            {
+                if (IsReady || currentDuration <= 0f) return 0f;
+                return Mathf.Clamp01((nextReadyTime - Time.time) / currentDuration);
+            }
+        }
+
+        /// <summary>
+        /// 完成进度（0 -> 1）：刚触发时为 0，冷却结束时为 1
+        /// （适合用于充能条、Slider 进度条）
+        /// </summary>
+        public float CompletionProgress => 1f - RemainingProgress;
+
+        /// <summary>
+        /// 开始进入冷却
+        /// </summary>
+        public void Start()
+        {
+            currentDuration = Mathf.Max(0f, duration);
+            nextReadyTime = Time.time + currentDuration;
+        }
+
+        /// <summary>
+        /// 立即结束冷却（例如吃了刷新技能CD的道具）
+        /// </summary>
+        public void Reset()
+        {
+            nextReadyTime = 0f;
+        }
+    }
+}
 #endregion
