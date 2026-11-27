@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
+using System.Threading;
 
 #region InterfaceScanner
 
@@ -182,13 +183,15 @@ namespace DX.Core.Utility
         // ---------- 对外 API ----------
 
         /// <summary>延迟 seconds 秒后执行一次。</summary>
-        public static Timer Delay(float seconds, Action onComplete, bool unscaled = false)
-            => Create(seconds, 1, null, onComplete, unscaled);
+        public static Timer Delay(float seconds, Action onComplete, bool unscaled = false,
+                                  CancellationToken token = default)
+            => Create(seconds, 1, null, onComplete, unscaled, token);
 
         /// <summary>每隔 interval 秒执行一次；count &lt;= 0 表示无限循环。</summary>
         public static Timer Repeat(float interval, Action onTick, int count = -1,
-                                   Action onComplete = null, bool unscaled = false)
-            => Create(interval, count, onTick, onComplete, unscaled);
+                                   Action onComplete = null, bool unscaled = false,
+                                   CancellationToken token = default)
+            => Create(interval, count, onTick, onComplete, unscaled, token);
 
         public bool IsDone { get; private set; }
         public bool IsPaused { get; private set; }
@@ -205,11 +208,13 @@ namespace DX.Core.Utility
         readonly int repeat;
         readonly bool unscaled;
         readonly Action onTick, onComplete;
+        readonly CancellationToken token;
         float elapsed;
         int count;
 
-        Timer(float interval, int repeat, Action onTick, Action onComplete, bool unscaled)
+        Timer(float interval, int repeat, Action onTick, Action onComplete, bool unscaled, CancellationToken token)
         {
+            this.token = token;
             this.interval = Mathf.Max(interval, 0.0001f);
             this.repeat = repeat;
             this.onTick = onTick;
@@ -217,7 +222,7 @@ namespace DX.Core.Utility
             this.unscaled = unscaled;
         }
 
-        static Timer Create(float interval, int repeat, Action onTick, Action onComplete, bool unscaled)
+        static Timer Create(float interval, int repeat, Action onTick, Action onComplete, bool unscaled, CancellationToken token)
         {
             if (driver == null)
             {
@@ -225,20 +230,22 @@ namespace DX.Core.Utility
                 UnityEngine.Object.DontDestroyOnLoad(go);
                 driver = go.AddComponent<Driver>();
             }
-            var t = new Timer(interval, repeat, onTick, onComplete, unscaled);
+            var t = new Timer(interval, repeat, onTick, onComplete, unscaled, token);
             pending.Add(t);
             return t;
         }
 
         void Update(float dt)
         {
-            if (IsDone || IsPaused) return;
+            if (IsDone) return;
+            if (token.IsCancellationRequested) { IsDone = true; return; }  // 外部令牌取消，不触发 onComplete
+            if (IsPaused) return;
             elapsed += dt;
             while (elapsed >= interval && !IsDone)
             {
                 elapsed -= interval;
                 onTick?.Invoke();
-                if (IsDone) break;                       // 回调里可能已 Cancel
+                if (IsDone || token.IsCancellationRequested) break;  // 回调里可能已取消
                 if (repeat > 0 && ++count >= repeat)
                 {
                     IsDone = true;
@@ -254,7 +261,6 @@ namespace DX.Core.Utility
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void Reset() { timers.Clear(); pending.Clear(); driver = null; }  // 兼容关闭域重载
 
-        [DisallowMultipleComponent]
         sealed class Driver : MonoBehaviour
         {
             void Update()
