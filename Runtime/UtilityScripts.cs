@@ -355,3 +355,101 @@ namespace DX.Core.Utility
     }
 }
 #endregion
+
+namespace DX.Core.Utility
+{
+    /// <summary>
+    /// 简易的标签系统
+    /// </summary>
+    [Serializable]
+    public class TagContainer<TTag>
+    {
+        private readonly Dictionary<TTag, int> _tagCounts;
+
+#if UNITY_EDITOR
+        [SerializeField]
+        private List<TTag> _debugActiveTags = new List<TTag>();
+#endif
+
+        /// <summary>
+        /// 当标签首次添加（计数 0->1） 时触发
+        /// </summary>
+        public event Action<TTag> OnTagAdded;
+        /// <summary>
+        /// 当标签彻底移除（计数 1->0）时触发
+        /// </summary>
+        public event Action<TTag> OnTagRemoved;
+
+        public TagContainer(IEqualityComparer<TTag> comparer = null)
+        {
+            _tagCounts = new Dictionary<TTag, int>(comparer);
+        }
+
+        /// <summary>
+        /// 添加一个标签，重复添加时计数 +1
+        /// </summary>
+        public void AddTag(TTag tag)
+        {
+            if (_tagCounts.TryGetValue(tag, out int count))
+            {
+                _tagCounts[tag] = count + 1;
+            }
+            else
+            {
+                _tagCounts[tag] = 1;
+
+#if UNITY_EDITOR
+                _debugActiveTags.Add(tag);
+#endif
+                OnTagAdded?.Invoke(tag);
+            }
+        }
+
+        /// <summary>
+        /// 当计数为 0 时删除该标签
+        /// </summary>
+        public void RemoveTag(TTag tag)
+        {
+            if (!_tagCounts.TryGetValue(tag, out int count)) return;
+
+            if (count > 1)
+            {
+                _tagCounts[tag] = count - 1;
+            }
+            else
+            {
+                _tagCounts.Remove(tag);
+#if UNITY_EDITOR
+                _debugActiveTags.Remove(tag);
+#endif
+                OnTagRemoved?.Invoke(tag);
+            }
+        }
+
+        /// <summary>
+        /// 是否包含指定标签
+        /// </summary>
+        public bool HasTag(TTag tag) => _tagCounts.ContainsKey(tag);
+
+        /// <summary>
+        /// 是否包含任意一个标签
+        /// </summary>
+        public bool HasAnyTag(params TTag[] tags)
+        {
+            for (int i = 0; i < tags.Length; i++)
+            {
+                if (_tagCounts.ContainsKey(tags[i])) return true;
+            }
+            return false;
+        }
+
+        public void Clear()
+        {
+            _tagCounts.Clear();
+#if UNITY_EDITOR
+            _debugActiveTags.Clear();
+#endif
+        }
+    }
+
+}
