@@ -1491,8 +1491,8 @@ namespace DX.Core.ReactiveStateMachine
         private bool _useReflection = true;
         /// <summary> 开启反射功能，关闭时可快速初始化，状态内Attribute会失效 (在初始化前设置)</summary>
         public bool UseReflection { get => _useReflection; set { if (_hasInitialized) return; _useReflection = value; } }
-        /// <summary>状态机销毁(Dispose)时是否自动执行停机流程(Stop/OnExit)。</summary>
-        public bool StopOnDispose { get; set; } = true;
+        /// <summary>状态机销毁(Dispose)时是否自动执行停机流程(Stop/OnExit)。(默认 false)</summary>
+        public bool StopOnDispose { get; set; } = false;
 
         // 代表 AnyState，匹配任意状态
         private static Type AnyStateKey => typeof(AnyState);
@@ -8336,6 +8336,7 @@ namespace DX.Core.ReactiveStateMachine
     #endregion
     //!============== 其他工具/缓存 ==================
     #region Other
+
     /// <summary>
     /// 全局通配状态 Key 专用类（代表 AnyState，匹配任意状态）
     /// </summary>
@@ -8779,6 +8780,91 @@ namespace DX.Core.ReactiveStateMachine
 
 namespace DX.Core.Utility
 {
+    /// <summary>
+    /// 简易的标签系统
+    /// </summary>
+    [Serializable]
+    public class TagContainer<TTag>
+    {
+        private readonly Dictionary<TTag, int> _tagCounts;
+
+        [SerializeField]
+        private List<TTag> _debugActiveTags = new List<TTag>();
+
+        /// <summary>
+        /// 当标签首次添加（计数 0->1） 时触发
+        /// </summary>
+        public event Action<TTag> OnTagAdded;
+        /// <summary>
+        /// 当标签彻底移除（计数 1->0）时触发
+        /// </summary>
+        public event Action<TTag> OnTagRemoved;
+
+        public TagContainer(IEqualityComparer<TTag> comparer = null)
+        {
+            _tagCounts = new Dictionary<TTag, int>(comparer);
+        }
+
+        /// <summary>
+        /// 添加一个标签，重复添加时计数 +1
+        /// </summary>
+        public void AddTag(TTag tag)
+        {
+            if (_tagCounts.TryGetValue(tag, out int count))
+            {
+                _tagCounts[tag] = count + 1;
+            }
+            else
+            {
+                _tagCounts[tag] = 1;
+                _debugActiveTags.Add(tag);
+                OnTagAdded?.Invoke(tag);
+            }
+        }
+
+        /// <summary>
+        /// 当计数为 0 时删除该标签
+        /// </summary>
+        public void RemoveTag(TTag tag)
+        {
+            if (!_tagCounts.TryGetValue(tag, out int count)) return;
+
+            if (count > 1)
+            {
+                _tagCounts[tag] = count - 1;
+            }
+            else
+            {
+                _tagCounts.Remove(tag);
+                _debugActiveTags.Remove(tag);
+                OnTagRemoved?.Invoke(tag);
+            }
+        }
+
+        /// <summary>
+        /// 是否包含指定标签
+        /// </summary>
+        public bool HasTag(TTag tag) => _tagCounts.ContainsKey(tag);
+
+        /// <summary>
+        /// 是否包含任意一个标签
+        /// </summary>
+        public bool HasAnyTag(params TTag[] tags)
+        {
+            for (int i = 0; i < tags.Length; i++)
+            {
+                if (_tagCounts.ContainsKey(tags[i])) return true;
+            }
+            return false;
+        }
+
+        public void Clear()
+        {
+            _tagCounts.Clear();
+            _debugActiveTags.Clear();
+        }
+    }
+
     /// <summary>可复用的释放器</summary>
     public sealed class ActionDisposable : IDisposable
     {
