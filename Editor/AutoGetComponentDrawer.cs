@@ -1,6 +1,5 @@
 // Editor/AutoGetComponentDrawer.cs (必须放在 Editor 文件夹下)
 using System;
-using DX.Core.Attributes;
 using UnityEditor;
 using UnityEngine;
 
@@ -45,21 +44,25 @@ namespace DX.Core.Attributes.Editor
             var attr = (AutoGetAttribute)attribute;
 
             // 2. 自动查找并赋值逻辑（仅在非运行模式、单选、且当前引用为空时触发）
-            if (!Application.isPlaying &&
-                !property.serializedObject.isEditingMultipleObjects &&
-                property.objectReferenceValue == null)
+            if (!Application.isPlaying && !property.serializedObject.isEditingMultipleObjects)
             {
                 if (property.serializedObject.targetObject is Component targetComponent)
                 {
-                    Component found = FindComponent(targetComponent, fieldInfo.FieldType, attr);
-                    if (found != null)
+                    var current = property.objectReferenceValue as Component;
+
+                    // 当引用为空、Missing、或不属于当前合法层级时，重新查找
+                    if (!IsInScope(targetComponent, current, attr))
                     {
-                        property.objectReferenceValue = found;
-                        property.serializedObject.ApplyModifiedProperties();
+                        Component found = FindComponent(targetComponent, fieldInfo.FieldType, attr);
+                        // 仅在值确实发生变化时才应用（若原本不在 Scope 且新物体也找不到，会清空为 null 并触发警告）
+                        if (found != current)
+                        {
+                            property.objectReferenceValue = found;
+                            property.serializedObject.ApplyModifiedProperties();
+                        }
                     }
                 }
             }
-
             bool showWarning = NeedsHelpBox(property);
 
             // 3. 隐藏模式：已找到组件则直接跳过绘制；未找到则仅显示警告提示
@@ -104,7 +107,7 @@ namespace DX.Core.Attributes.Editor
         private bool IsValidProperty(SerializedProperty property)
         {
             return property.propertyType == SerializedPropertyType.ObjectReference &&
-                   typeof(Component).IsAssignableFrom(fieldInfo.FieldType);
+                typeof(Component).IsAssignableFrom(fieldInfo.FieldType);
         }
 
         private bool NeedsHelpBox(SerializedProperty property)
@@ -113,6 +116,20 @@ namespace DX.Core.Attributes.Editor
                 return false;
 
             return !property.serializedObject.isEditingMultipleObjects && property.objectReferenceValue == null;
+        }
+
+        public static bool IsInScope(Component target, Component current, AutoGetAttribute attr)
+        {
+            if (current == null || target == null) return false;
+
+            return attr.Scope switch
+            {
+                ComponentScope.Self => current.gameObject == target.gameObject,
+                // 注：Unity 中 transform.IsChildOf(transform) 对自身也会返回 true
+                ComponentScope.InChildren => current.transform.IsChildOf(target.transform),
+                ComponentScope.InParent => target.transform.IsChildOf(current.transform),
+                _ => false
+            };
         }
 
         public static Component FindComponent(Component target, Type componentType, AutoGetAttribute attr)

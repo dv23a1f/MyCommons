@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using DX.Core.Attributes;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -108,10 +107,11 @@ namespace DX.Core.Attributes.Editor
                     {
                         foreach (var (field, attr) in fieldList)
                         {
-                            if ((field.GetValue(comp) as UnityEngine.Object) == null)
+                            var current = field.GetValue(comp) as Component;
+                            if (!AutoGetComponentDrawer.IsInScope(comp, current, attr))
                             {
                                 Component found = AutoGetComponentDrawer.FindComponent(comp, field.FieldType, attr);
-                                if (found != null)
+                                if (found != current)
                                 {
                                     so ??= new SerializedObject(comp);
                                     var prop = so.FindProperty(field.Name);
