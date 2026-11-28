@@ -290,8 +290,15 @@ namespace DX.Core.Extensions
     #region Lock
     public static class AutoLockExtensions
     {
-        private static readonly ConditionalWeakTable<object, HashSet<string>> _table = new();
+        private static ConditionalWeakTable<object, HashSet<string>> _table;
+        private static ConditionalWeakTable<object, HashSet<string>> Table => _table ??= new();
 
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetOnEnterPlayMode()
+        {
+            // 兼容 Reload Domain
+            _table = null;
+        }
         /// <summary>
         /// 为当前对象的当前方法上锁，通常用于 async 方法。（可手动传入自定义 key）
         /// 用法：using var scope = this.EnterLock(); if (scope.IsBusy) return;
@@ -299,7 +306,7 @@ namespace DX.Core.Extensions
         /// </summary>
         public static LockScope EnterLock<T>(this T owner, [CallerMemberName] string key = "") where T : class
         {
-            var set = _table.GetOrCreateValue(owner);
+            var set = Table.GetOrCreateValue(owner);
             lock (set)
             {
                 // 如果已经存在该 key，说明正在执行中，返回空 Scope
