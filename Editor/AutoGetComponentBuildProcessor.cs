@@ -26,7 +26,10 @@ namespace DX.Core.Attributes.Editor
             // 核心优化：使用 Unity 原生索引 TypeCache，耗时 < 0.1ms，无 GC
             foreach (FieldInfo field in TypeCache.GetFieldsWithAttribute<AutoGetAttribute>())
             {
-                if (field.IsStatic || !typeof(Component).IsAssignableFrom(field.FieldType))
+                bool isSerialized = (field.IsPublic || field.IsDefined(typeof(SerializeField)))
+                    && !field.IsDefined(typeof(NonSerializedAttribute));
+
+                if (field.IsStatic || !isSerialized || !typeof(Component).IsAssignableFrom(field.FieldType))
                     continue;
 
                 var attr = field.GetCustomAttribute<AutoGetAttribute>();
@@ -60,7 +63,7 @@ namespace DX.Core.Attributes.Editor
         [MenuItem("Tools/FixAllPrefabs [AutoGetComponent]")]
         public static void FixAllPrefabs()
         {
-            string[] guids = AssetDatabase.FindAssets("t:Prefab");
+            string[] guids = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" });
             int fixedCount = 0;
 
             foreach (string guid in guids)
@@ -105,7 +108,7 @@ namespace DX.Core.Attributes.Editor
                     {
                         foreach (var (field, attr) in fieldList)
                         {
-                            if (field.GetValue(comp) == null)
+                            if ((field.GetValue(comp) as UnityEngine.Object) == null)
                             {
                                 Component found = AutoGetComponentDrawer.FindComponent(comp, field.FieldType, attr);
                                 if (found != null)
