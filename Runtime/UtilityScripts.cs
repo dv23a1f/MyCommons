@@ -457,10 +457,11 @@ namespace DX.Core.Utility
         private static readonly ConditionalWeakTable<object, HashSet<string>> _table = new();
 
         /// <summary>
-        /// 为当前对象的当前方法上锁（也可手动传入自定义 key）
+        /// 为当前对象的当前方法上锁，通常用于 async 方法。（可手动传入自定义 key）
         /// 用法：using var scope = this.EnterLock(); if (scope.IsBusy) return;
+        /// 当前方法执行完毕或 return 后自行解锁
         /// </summary>
-        public static LockScope EnterLock(this object owner, [CallerMemberName] string key = "")
+        public static LockScope EnterLock<T>(this T owner, [CallerMemberName] string key = "") where T : class
         {
             var set = _table.GetOrCreateValue(owner);
             lock (set)
