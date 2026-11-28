@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using DX.Core.App;
 using UnityEngine;
-using UnityEngine.Pool;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
 
@@ -149,37 +148,6 @@ namespace DX.Core.Extensions
             }
         }
 
-        #region 1. DampedTrackTo (无 UpVector，最短路径旋转)
-
-        /// <summary>
-        /// 使骨骼的指定局部轴以最短路径看向目标（类似 Blender 的 Damped Track）
-        /// </summary>
-        public static void DampedTrackTo(this Transform bone, Transform target, Vector3 localTrackAxis)
-        {
-            if (target == null) return;
-            bone.DampedTrackTo(target.position, localTrackAxis);
-        }
-
-        /// <summary>
-        /// 使骨骼的指定局部轴以最短路径看向目标位置
-        /// </summary>
-        public static void DampedTrackTo(this Transform bone, Vector3 targetPosition, Vector3 localTrackAxis)
-        {
-            if (bone == null) return;
-
-            Vector3 targetDir = targetPosition - bone.position;
-            if (targetDir.sqrMagnitude < 1e-8f || localTrackAxis.sqrMagnitude < 1e-8f) return;
-
-            Vector3 currentWorldDir = bone.rotation * localTrackAxis.normalized;
-            Quaternion deltaRotation = Quaternion.FromToRotation(currentWorldDir, targetDir.normalized);
-
-            bone.rotation = deltaRotation * bone.rotation;
-        }
-
-        #endregion
-
-        #region 2. TrackTo (有 UpVector，严格锁定朝向与翻滚)
-
         /// <summary>
         /// 使骨骼的指定局部轴看向目标，并使局部 Up 轴对齐世界正上方 Vector3.up（类似 Blender 的 Track To）
         /// </summary>
@@ -220,7 +188,6 @@ namespace DX.Core.Extensions
             bone.rotation = worldLook * Quaternion.Inverse(localOffset);
         }
 
-        #endregion
     }
 
     public static class AvatarMaskExtensions
@@ -319,6 +286,67 @@ namespace DX.Core.Extensions
             }
         }
     }
+
+    #region Lock
+    public static class AutoLockExtensions
+    {
+        private static readonly ConditionalWeakTable<object, HashSet<string>> _table = new();
+
+        /// <summary>
+        /// 为当前对象的当前方法上锁，通常用于 async 方法。（可手动传入自定义 key）
+        /// 用法：using var scope = this.EnterLock(); if (scope.IsBusy) return;
+        /// 当前方法执行完毕或 return 后自行解锁
+        /// </summary>
+        public static LockScope EnterLock<T>(this T owner, [CallerMemberName] string key = "") where T : class
+        {
+            var set = _table.GetOrCreateValue(owner);
+            lock (set)
+            {
+                // 如果已经存在该 key，说明正在执行中，返回空 Scope
+                if (!set.Add(key))
+                {
+                    return default;
+                }
+            }
+            return new LockScope(set, key);
+        }
+
+        public readonly struct LockScope : IDisposable
+        {
+            private readonly HashSet<string> _set;
+            private readonly string _key;
+
+            internal LockScope(HashSet<string> set, string key)
+            {
+                _set = set;
+                _key = key;
+            }
+
+            public bool IsBusy => _set == null;
+
+            // 允许直接写成 if (!scope) return;
+            public static implicit operator bool(LockScope scope) => scope._set != null;
+
+            public void Dispose()
+            {
+                if (_set != null)
+                {
+                    lock (_set)
+                    {
+                        _set.Remove(_key);
+                    }
+                }
+            }
+        }
+
+        public static async void RunLockedAsync(this object owner, Func<UnityEngine.Awaitable> asyncAction, [CallerMemberName] string key = "")
+        {
+            using var locked = owner.EnterLock(key);
+            if (!locked) return;
+            if (asyncAction != null) await asyncAction();
+        }
+    }
+    #endregion
 
     #region Copy
     public static class CopyUtility
