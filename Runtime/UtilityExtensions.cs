@@ -296,7 +296,7 @@ namespace DX.Core.Extensions
         [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetOnEnterPlayMode()
         {
-            // 兼容 Reload Domain
+            // 兼容 Reload Domain (ScriptableObject 的情况)
             _table = null;
         }
         /// <summary>
