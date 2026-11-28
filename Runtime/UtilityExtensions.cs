@@ -344,6 +344,10 @@ namespace DX.Core.Extensions
                 }
             }
         }
+
+        /// <summary>
+        /// 执行一个异步任务，并在执行过程中上锁，防止重复调用。
+        /// </summary>
         public static async void RunLockedAsync(this object owner, Func<UnityEngine.Awaitable> asyncAction, [CallerMemberName] string key = "")
         {
             using var locked = owner.EnterLock(key);
@@ -351,6 +355,7 @@ namespace DX.Core.Extensions
             if (asyncAction != null) await asyncAction();
         }
     }
+
     #region Copy
     public static class CopyUtility
     {
