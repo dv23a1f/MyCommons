@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
-using System.Threading;
+using System.Runtime.CompilerServices;
 
 #region InterfaceScanner
 
@@ -452,4 +452,61 @@ namespace DX.Core.Utility
         }
     }
 
+    public static class AutoLockExtensions
+    {
+        private static readonly ConditionalWeakTable<object, HashSet<string>> _table = new();
+
+        /// <summary>
+        /// 为当前对象的当前方法上锁（也可手动传入自定义 key）
+        /// 用法：using var scope = this.EnterLock(); if (scope.IsBusy) return;
+        /// </summary>
+        public static LockScope EnterLock(this object owner, [CallerMemberName] string key = "")
+        {
+            var set = _table.GetOrCreateValue(owner);
+            lock (set)
+            {
+                // 如果已经存在该 key，说明正在执行中，返回空 Scope
+                if (!set.Add(key))
+                {
+                    return default;
+                }
+            }
+            return new LockScope(set, key);
+        }
+
+        public readonly struct LockScope : IDisposable
+        {
+            private readonly HashSet<string> _set;
+            private readonly string _key;
+
+            internal LockScope(HashSet<string> set, string key)
+            {
+                _set = set;
+                _key = key;
+            }
+
+            public bool IsBusy => _set == null;
+
+            // 允许直接写成 if (!scope) return;
+            public static implicit operator bool(LockScope scope) => scope._set != null;
+
+            public void Dispose()
+            {
+                if (_set != null)
+                {
+                    lock (_set)
+                    {
+                        _set.Remove(_key);
+                    }
+                }
+            }
+        }
+
+        public static async void RunLockedAsync(this object owner, Func<UnityEngine.Awaitable> asyncAction, [CallerMemberName] string key = "")
+        {
+            using var locked = owner.EnterLock(key);
+            if (!locked) return;
+            if (asyncAction != null) await asyncAction();
+        }
+    }
 }
