@@ -364,7 +364,8 @@ namespace DX.Core.Utility
     [Serializable]
     public class TagContainer<TTag>
     {
-        private readonly Dictionary<TTag, int> _tagCounts;
+        // private readonly Dictionary<TTag, int> _tagCounts;
+        private readonly HashSet<TTag> _tagSet = new();
 
 #if UNITY_EDITOR
         [SerializeField]
@@ -372,32 +373,22 @@ namespace DX.Core.Utility
 #endif
 
         /// <summary>
-        /// 当标签首次添加（计数 0->1） 时触发
+        /// 当标签成功添加时触发
         /// </summary>
         public event Action<TTag> OnTagAdded;
+
         /// <summary>
-        /// 当标签彻底移除（计数 1->0）时触发
+        /// 当标签成功移除时触发
         /// </summary>
         public event Action<TTag> OnTagRemoved;
 
-        public TagContainer(IEqualityComparer<TTag> comparer = null)
-        {
-            _tagCounts = new Dictionary<TTag, int>(comparer);
-        }
-
         /// <summary>
-        /// 添加一个标签，重复添加时计数 +1
+        /// 添加一个标签
         /// </summary>
         public void AddTag(TTag tag)
         {
-            if (_tagCounts.TryGetValue(tag, out int count))
+            if (_tagSet.Add(tag))
             {
-                _tagCounts[tag] = count + 1;
-            }
-            else
-            {
-                _tagCounts[tag] = 1;
-
 #if UNITY_EDITOR
                 _debugActiveTags.Add(tag);
 #endif
@@ -406,19 +397,12 @@ namespace DX.Core.Utility
         }
 
         /// <summary>
-        /// 当计数为 0 时删除该标签
+        /// 删除该标签
         /// </summary>
         public void RemoveTag(TTag tag)
         {
-            if (!_tagCounts.TryGetValue(tag, out int count)) return;
-
-            if (count > 1)
+            if (_tagSet.Remove(tag))
             {
-                _tagCounts[tag] = count - 1;
-            }
-            else
-            {
-                _tagCounts.Remove(tag);
 #if UNITY_EDITOR
                 _debugActiveTags.Remove(tag);
 #endif
@@ -429,7 +413,7 @@ namespace DX.Core.Utility
         /// <summary>
         /// 是否包含指定标签
         /// </summary>
-        public bool HasTag(TTag tag) => _tagCounts.ContainsKey(tag);
+        public bool HasTag(TTag tag) => _tagSet.Contains(tag);
 
         /// <summary>
         /// 是否包含任意一个标签
@@ -438,14 +422,26 @@ namespace DX.Core.Utility
         {
             for (int i = 0; i < tags.Length; i++)
             {
-                if (_tagCounts.ContainsKey(tags[i])) return true;
+                if (_tagSet.Contains(tags[i])) return true;
             }
             return false;
         }
 
+        /// <summary>
+        /// 是否包含所有标签
+        /// </summary>
+        public bool HasAllTag(params TTag[] tags)
+        {
+            for (int i = 0; i < tags.Length; i++)
+            {
+                if (!_tagSet.Contains(tags[i])) return false;
+            }
+            return true;
+        }
+
         public void Clear()
         {
-            _tagCounts.Clear();
+            _tagSet.Clear();
 #if UNITY_EDITOR
             _debugActiveTags.Clear();
 #endif
