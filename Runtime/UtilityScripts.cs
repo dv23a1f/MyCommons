@@ -364,31 +364,40 @@ namespace DX.Core.Utility
     [Serializable]
     public class TagContainer<TTag>
     {
-        // private readonly Dictionary<TTag, int> _tagCounts;
-        private readonly HashSet<TTag> _tagSet = new();
+        private readonly Dictionary<TTag, int> _tagCounts;
 
 #if UNITY_EDITOR
         [SerializeField]
         private List<TTag> _debugActiveTags = new List<TTag>();
 #endif
 
+        public TagContainer(IEqualityComparer<TTag> comparer = null)
+        {
+            _tagCounts = new Dictionary<TTag, int>(comparer);
+        }
         /// <summary>
-        /// 当标签成功添加时触发
+        /// 当标签成功添加时触发（计数 0->1）
         /// </summary>
         public event Action<TTag> OnTagAdded;
 
         /// <summary>
-        /// 当标签成功移除时触发
+        /// 当标签成功移除时触发（计数 1->0）
         /// </summary>
         public event Action<TTag> OnTagRemoved;
 
         /// <summary>
-        /// 添加一个标签
+        /// 设定一个标签，无论是否存在都将计数设置为 1（用于不可重复添加的场景）
         /// </summary>
-        public void AddTag(TTag tag)
+        /// <param name="tag"></param>
+        public void SetTag(TTag tag)
         {
-            if (_tagSet.Add(tag))
+            if (_tagCounts.TryGetValue(tag, out int count))
             {
+                if (count != 1) _tagCounts[tag] = 1;
+            }
+            else
+            {
+                _tagCounts[tag] = 1;
 #if UNITY_EDITOR
                 _debugActiveTags.Add(tag);
 #endif
@@ -397,12 +406,38 @@ namespace DX.Core.Utility
         }
 
         /// <summary>
-        /// 删除该标签
+        /// 添加一个标签，如存在则计数 +1 （适用于碰撞体 isGround 检查，或多个脚本添加同一个标签的场景）
+        /// </summary>
+        public void AddTag(TTag tag)
+        {
+            if (_tagCounts.TryGetValue(tag, out int count))
+            {
+                _tagCounts[tag] = count + 1;
+            }
+            else
+            {
+                _tagCounts[tag] = 1;
+#if UNITY_EDITOR
+                _debugActiveTags.Add(tag);
+#endif
+                OnTagAdded?.Invoke(tag);
+            }
+        }
+
+        /// <summary>
+        /// 当计数为 0 则删除该标签
         /// </summary>
         public void RemoveTag(TTag tag)
         {
-            if (_tagSet.Remove(tag))
+            if (!_tagCounts.TryGetValue(tag, out int count)) return;
+
+            if (count > 1)
             {
+                _tagCounts[tag] = count - 1;
+            }
+            else
+            {
+                _tagCounts.Remove(tag);
 #if UNITY_EDITOR
                 _debugActiveTags.Remove(tag);
 #endif
@@ -411,9 +446,14 @@ namespace DX.Core.Utility
         }
 
         /// <summary>
+        /// 查询指定标签的当前计数，不存在则返回0
+        /// </summary>
+        public int Count(TTag tag) => _tagCounts.GetValueOrDefault(tag, 0);
+
+        /// <summary>
         /// 是否包含指定标签
         /// </summary>
-        public bool HasTag(TTag tag) => _tagSet.Contains(tag);
+        public bool HasTag(TTag tag) => _tagCounts.ContainsKey(tag);
 
         /// <summary>
         /// 是否包含任意一个标签
@@ -422,7 +462,7 @@ namespace DX.Core.Utility
         {
             for (int i = 0; i < tags.Length; i++)
             {
-                if (_tagSet.Contains(tags[i])) return true;
+                if (_tagCounts.ContainsKey(tags[i])) return true;
             }
             return false;
         }
@@ -434,14 +474,14 @@ namespace DX.Core.Utility
         {
             for (int i = 0; i < tags.Length; i++)
             {
-                if (!_tagSet.Contains(tags[i])) return false;
+                if (!_tagCounts.ContainsKey(tags[i])) return false;
             }
             return true;
         }
 
         public void Clear()
         {
-            _tagSet.Clear();
+            _tagCounts.Clear();
 #if UNITY_EDITOR
             _debugActiveTags.Clear();
 #endif
